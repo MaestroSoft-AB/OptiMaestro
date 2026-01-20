@@ -1,67 +1,65 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <signal.h>
-#include <unistd.h>
-#include <stdatomic.h>
+#include "signal_handler.h"
+#include <time.h>
 
-/* ---------------------- signals (declared for async signal safety) ---------------------- */
+/* ---------------------- Signals (declared for async signal safety) ---------------------- */
 
+static volatile sig_atomic_t sig_ignore = 0;
 static volatile sig_atomic_t sig_exit = 0;
-static volatile sig_atomic_t sig_new_cache = 0;
-static volatile sig_atomic_t sig_ = 0;
+static volatile sig_atomic_t sig_new_data = 0;
+static volatile sig_atomic_t sig_clear_cache = 0;
+
+/* Sighandlers */
+void sig_handle_ignore(int _sig)      { /* do absolutely nothing */ }
+void sig_handle_exit(int _sig)        { sig_exit = 1; }
+void sig_handle_new_data(int _sig)    { sig_new_data = 1; }
+void sig_handle_clear_cache(int _sig) { sig_clear_cache = 1; }
+
+
+static Signal_Wrapper Signals[] = {
+  { &sig_ignore,      &sig_handle_ignore,      SIGINT },
+  { &sig_exit,        &sig_handle_exit,        SIGTERM },
+  { &sig_new_data,    &sig_handle_new_data,    SIGUSR1 },
+  { &sig_clear_cache, &sig_handle_clear_cache, SIGUSR2 },
+};
+
+static const int signals_c = sizeof(Signals) / sizeof(Signals[0]);
 
 /* ---------------------------------------------------------------------------------------- */
 
-typedef enum
-{
-
-} Signals;
-
-static void signal_handler(int _sig) {
-  switch (_sig)
-  {
-    case SIGINT:
-      break;
-    case SIGTERM:
-      sig_exit = 1;
-      break;
-    case SIGUSR1:
-      sig_new_cache = 1;
-      break;
-    case SIGUSR2:
-      break;
-
-  }
-}
-
-static void install_handler(int signum) {
-  struct sigaction sa;
-  sa.sa_handler = signal_handler;
-  sigemptyset(&sa.sa_mask);
-  sa.sa_flags = 0;  // or SA_RESTART
-
-  if (sigaction(signum, &sa, NULL) == -1) {
-    perror("sigaction");
-    exit(EXIT_FAILURE);
-  }
-}
+struct timespec req = { 0, 100 }; // nanosleep delay, .1 ms
 
 int main(int _argc, const char** _argv)
 {
   /* TODO: Start handler threads */
+  
+  /* install signal handlers */
+  install_handlers(signals_c, Signals);
 
   /* Process handler, handle signals */
-  for (;;)
+  while (1)
   {
     if (sig_exit)
     {
-      // TODO: cleanup
-      printf("Shutting down Optimizer.\n");
-      return 0;
+      // TODO: eventual cleanup of running tasks 
+      printf("Optimizer exit!\n");
+      exit(EXIT_SUCCESS); 
+    }
+    else if (sig_new_data)
+    {
+      printf("Get new cache and calulations!\n");
+
+      sig_new_data = 0;
+    }
+    else if (sig_clear_cache)
+    {
+      printf("Clear cache!\n");
+
+      sig_clear_cache = 0;
     }
 
+    nanosleep(&req, NULL);
   }
 
   return 0;

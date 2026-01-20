@@ -2,8 +2,7 @@
 # ============== Optimizer Makefile ===============
 # =================================================
 
-# Compiler (use clang on macOS, gcc otherwise)
-UNAME_S := $(shell uname -s)
+# Compiler 
 CC := gcc
 
 BUILD_DIR := build
@@ -11,9 +10,9 @@ BIN_DIR		:= ../bin
 
 # Source files directories
 SRC_DIR   		:= src
-CORE_SRC_DIR  := #core/modules/src
-UTILS_SRC_DIR := #core/utils/src
-LIBS_SRC_DIR  := #libs/src
+CORE_SRC_DIR  := core/src
+UTILS_SRC_DIR := utils/src
+LIBS_SRC_DIR  := libs/src
 
 # Source files to build
 SRC       := $(shell find -L $(SRC_DIR) 	-type f -name '*.c')
@@ -31,7 +30,7 @@ CACHE_DIR := data/cache
 # Compilation flags
 # CFLAGS := -std=c99 -MMD -MP -Wall -Wextra -Werror -Wfatal-errors -Wno-format-truncation -I../libs
 # CFLAGS := -std=c99 -MMD -MP -g -I../libs -I../utils
-CFLAGS := -std=c99 -MMD -MP -Wall -Wextra -Wfatal-errors -g -Iinclude -I../libs/include -I../core/utils/include -I../core/modules/include
+CFLAGS := -std=c99 -MMD -MP -Wall -Wextra -Wfatal-errors -g -Iinclude -I../libs/include -I../utils/include -I../core/include
 ASAN_FLAGS := -O1 -g3 -fno-omit-frame-pointer -fsanitize=address,undefined
 
 # Linker flags (auto-detect platform)
@@ -39,33 +38,6 @@ LDFLAGS := -flto -Wl,--gc-sections
 
 # Linked libraries
 LIBS := -lcurl
-
-#Fuzzing build
-FUZZ_CC     ?= afl-gcc-fast
-FUZZ_CFLAGS ?= -fsanitize=undefined -g -DHTTP_FUZZ_MODE
-FUZZ_OUT    ?= ../fuzz_http
-
-FUZZ_SOURCES = \
-    src/http/http_connection.c \
-    src/http/http_parser.c \
-    src/http/http_server.c \
-    src/tcp/tcp_client.c \
-    src/tcp/tcp_server.c \
-    src/scheduler.c \
-    src/weather/weather_instance.c \
-    src/weather/weather_server.c \
-    ../utils/src/linked_list.c \
-		../utils/src/misc_utils.c \
-    ../utils/src/file_utils.c \
-    ../utils/src/json_utils.c \
-    ../utils/src/time_utils.c \
-    ../libs/src/yuarel.c \
-    ../libs/src/HTTPStatusCodes.c \
-    ./tests/fuzz_http.c
-
-#Asan flags for fsanitize=address on Arch
-ASAN_CC     ?= gcc
-ASAN_OUT    ?= ../fuzz_http_asan
 
 # Map .c → .o
 SRC_OBJ   := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/$(SRC_DIR)/%.o,$(SRC))
@@ -137,30 +109,13 @@ gdb: $(BIN)
 	@echo "Debugging $< using gdb..."
 	@gdb ./$(BIN)
 
-fuzz:
-	$(FUZZ_CC) $(FUZZ_CFLAGS) $(FUZZ_SOURCES) \
-	    -Iinclude \
-	    -I../utils/include \
-	    -I../libs/include \
-	    -o $(FUZZ_OUT)
-	cd .. && afl-fuzz -i ./tests/inputs -o ./tests/findings -- ../fuzz_http
 
-fuzz-asan:
-	$(ASAN_CC) $(ASAN_CFLAGS) $(FUZZ_SOURCES) \
-	    -Iinclude \
-	    -I../utils/include \
-	    -I../libs/include \
-	    -o $(ASAN_OUT)
-	@echo ""
-	@echo "Built ASan binary: $(ASAN_OUT)"
-	@echo "Exempel: ./fuzz_http_asan < findings/default/crashes/ID_FILE"
+run-asan: asan
+	@echo "Running ASan build..."
+	@./$(BIN)
 
-# run-asan: asan
-# 	@echo "Running ASan build..."
-# 	@./$(BIN)
-#
-# asan:
-# 	@$(MAKE) CC=$(CC) CFLAGS="$(CFLAGS) $(ASAN_FLAGS)" LDFLAGS="$(LDFLAGS) $(ASAN_FLAGS)" all
+asan:
+	@$(MAKE) CC=$(CC) CFLAGS="$(CFLAGS) $(ASAN_FLAGS)" LDFLAGS="$(LDFLAGS) $(ASAN_FLAGS)" all
 
 print:
 	@echo "Source files: $(SRC)"
