@@ -17,8 +17,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-
-#include "scheduler.h"
+#include <maestromodules/scheduler.h>
 
 #define BACKLOG 10000
 #define MAX_CLIENTS 10000
