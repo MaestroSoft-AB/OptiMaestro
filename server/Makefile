@@ -1,12 +1,15 @@
 # =================================================
-# ============== Optimizer Makefile ===============
+# ======= 🌤WeatherMaestro Server Makefile ========
 # =================================================
 
-# Compiler 
-CC := gcc
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+	CC := clang
+else
+	CC := gcc
+endif
 
 BUILD_DIR := build
-BIN_DIR		:= ../bin
 
 # ----- Local server code -----
 SRC_DIR := src
@@ -34,54 +37,42 @@ endif
 
 ASAN_FLAGS := -O1 -g3 -fno-omit-frame-pointer -fsanitize=address,undefined
 
-# Linker flags (auto-detect platform)
-LDFLAGS := -flto -Wl,--gc-sections
+ifeq ($(UNAME_S),Darwin)
+	LDFLAGS := -flto
+else
+	LDFLAGS := -flto -Wl,--gc-sections
+endif
 
 # Linked libraries
 LIBS := -lcurl
 
-# Map .c → .o
-SRC_OBJ   := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/$(SRC_DIR)/%.o,$(SRC))
-CORE_OBJ  := $(patsubst ../$(CORE_SRC_DIR)/%.c,$(BUILD_DIR)/$(CORE_SRC_DIR)/%.o,$(CORE_SRC))
-UTILS_OBJ := $(patsubst ../$(UTILS_SRC_DIR)/%.c,$(BUILD_DIR)/$(UTILS_SRC_DIR)/%.o,$(UTILS_SRC))
-LIBS_OBJ  := $(patsubst ../$(LIBS_SRC_DIR)/%.c,$(BUILD_DIR)/$(LIBS_SRC_DIR)/%.o,$(LIBS_SRC))
+# Binary name
+BIN := ../server_app
 
-OBJ := $(SRC_OBJ) $(CORE_OBJ) $(UTILS_OBJ) $(LIBS_OBJ)
+# Map .c → .o (ONLY server sources)
+SRC_OBJ := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/$(SRC_DIR)/%.o,$(SRC))
+OBJ := $(SRC_OBJ)
 
 # Dependency files (.d)
 DEP := $(OBJ:.o=.d)
-
-# Binary name
-BIN := optimizer 
 
 # ==================== Recipes ====================
 
 all: $(BIN)
 	@echo "Build complete."
 
-$(BIN): $(OBJ)
+# Ensure MaestroCore is built (delegates to MaestroCore Makefile)
+$(MAESTRO_LIB):
+	@echo "Building MaestroCore (JSON=$(JSON))..."
+	@$(MAKE) -C $(MAESTRO_DIR) JSON=$(JSON)
+
+$(BIN): $(OBJ) $(MAESTRO_LIB)
 	@echo "Linking..."
-	@mkdir -p $(BIN_DIR)
-	@$(CC) $(LDFLAGS) $(OBJ) -o $(BIN_DIR)/$@ $(LIBS)
+	@$(CC) $(LDFLAGS) $(OBJ) $(MAESTRO_LIB) -o $@ $(LIBS)
 
 asan: clean
 	@echo "Building ASan binary..."
-	@$(MAKE) CC=$(CC) CFLAGS="$(CFLAGS) $(ASAN_FLAGS)" LDFLAGS="$(LDFLAGS) $(ASAN_FLAGS)" all
-
-$(BUILD_DIR)/$(CORE_SRC_DIR)/%.o: ../$(CORE_SRC_DIR)/%.c
-	@echo "Compiling $<..."
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/$(UTILS_SRC_DIR)/%.o: ../$(UTILS_SRC_DIR)/%.c
-	@echo "Compiling $<..."
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/$(LIBS_SRC_DIR)/%.o: ../$(LIBS_SRC_DIR)/%.c
-	@echo "Compiling $<..."
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	@$(MAKE) JSON=$(JSON) CC=$(CC) CFLAGS="$(CFLAGS) $(ASAN_FLAGS)" LDFLAGS="$(LDFLAGS) $(ASAN_FLAGS)" all
 
 $(BUILD_DIR)/$(SRC_DIR)/%.o: $(SRC_DIR)/%.c
 	@echo "Compiling $<..."
@@ -110,21 +101,13 @@ gdb: $(BIN)
 	@echo "Debugging $< using gdb..."
 	@gdb ./$(BIN)
 
-
-run-asan: asan
-	@echo "Running ASan build..."
-	@./$(BIN)
-
-asan:
-	@$(MAKE) CC=$(CC) CFLAGS="$(CFLAGS) $(ASAN_FLAGS)" LDFLAGS="$(LDFLAGS) $(ASAN_FLAGS)" all
-
 print:
 	@echo "Source files: $(SRC)"
 	@echo "Object files: $(OBJ)"
 	@echo "Dependency files: $(DEP)"
+	@echo "Maestro lib: $(MAESTRO_LIB)"
 
 -include $(DEP)
 
-# ==================== Phonies ====================
+.PHONY: all run clean print gdb valgrind asan
 
-.PHONY: all run clean print gdb valgrind

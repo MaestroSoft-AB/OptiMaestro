@@ -25,6 +25,14 @@
 -Ioptimizer/include
 
 # === Standards ===
--std=c11
+-std=c99
 -std=c++17
+-Wall
+-Wextra
+-Wpedantic
 
+-Iserver/include
+-Iexternal/MaestroCore/modules/include
+-Iexternal/MaestroCore/utils/include
+
+# -I/usr/include

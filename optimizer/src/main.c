@@ -1,8 +1,9 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "optimizer.h"
-#include "signal_handler.h"
-#include "error.h"
+#include "maestroutils/error.h"
+#include "maestroutils/signal_handler.h"
+
 #include <time.h>
 
 /* ---------------------------- Signals ----------------------------- */

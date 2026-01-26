@@ -1,0 +1,21 @@
+# .clang-format
+BasedOnStyle: LLVM
+
+PointerAlignment: Left
+DerivePointerAlignment: false
+ColumnLimit: 100
+
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true          # funktioner:
+                               # int f()
+                               # {
+  AfterControlStatement: false # if/for/while:
+                               # if (x) {
+  AfterClass: true
+  AfterStruct: true
+  AfterEnum: true
+  AfterNamespace: true
+  BeforeElse: false
+  BeforeCatch: false
+  IndentBraces: false

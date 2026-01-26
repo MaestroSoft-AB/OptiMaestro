@@ -1,6 +1,5 @@
 #include "optimizer.h"
-#include "electricity_cache_handler.h"
-#include "error.h"
+#include "maestroutils/error.h"
 
 #include <stdio.h>
 #include <pthread.h>
@@ -37,7 +36,6 @@ void* thread_func(void* _arg)
   return NULL; //return result somehow to skip need for struct result
 }
 
-/* */
 int optimizer_init(Optimizer* _OC)
 {
   optimizer_config_set(_OC, OPTI_CONFIG_PATH);
