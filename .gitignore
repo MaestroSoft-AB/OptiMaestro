@@ -1,0 +1,89 @@
+# Prerequisites
+*.d
+
+# Object files
+*.o
+*.ko
+*.obj
+*.elf
+
+# Linker output
+*.ilk
+*.map
+*.exp
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Libraries
+*.lib
+*.a
+*.la
+*.lo
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Kernel Module Compile Results
+*.mod*
+*.cmd
+.tmp_versions/
+modules.order
+Module.symvers
+Mkfile.old
+dkms.conf
+
+# debug information files
+*.dwo
+
+# No .bak
+*.bak
+
+# No binaries
+bin/
+
+# No build folder
+build/
+
+# no vgcore
+vgcore*
+
+# Fuzzing binaries & outputs
+/fuzz_http
+/fuzz_http_asan
+/findings/
+/default/
+findings/
+findings_old/
+findings_copy/
+findings_old_old/
+fuzz_http
+fuzz_http_asan
+/*.cur_input
+/*.state
+/*.synced
+
+
+#Untracking these for now
+external/
+
+.env
+*/data/cache/*

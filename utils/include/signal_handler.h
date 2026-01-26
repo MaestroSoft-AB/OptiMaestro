@@ -16,12 +16,12 @@ typedef struct
 } Signal_Wrapper;
 
 /* Install signal overrides for array of wrapper structs */
-static void install_handlers(int _c, Signal_Wrapper* _S) {
+static void signal_handlers_install(int _c, Signal_Wrapper* _S) {
   for (int i = 0; i < _c; i++) {
     struct sigaction sa;
     sa.sa_handler = _S[i].handler;
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
+    sa.sa_flags = SA_RESTART;
 
     if (sigaction(_S[i].sig, &sa, NULL) == -1) {
       perror("sigaction");
@@ -29,11 +29,5 @@ static void install_handlers(int _c, Signal_Wrapper* _S) {
     }
   }
 }
-
-/* Blocks/unblocks specific signal from process
- * Could be used to temporarily block SIGSEV in buggy code */
-void signal_block(int _sig);
-void signal_unblock(int _sig);
-
 
 #endif
