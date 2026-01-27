@@ -8,7 +8,8 @@ TCPServerState tcp_server_connection_handover(TCP_Server* _Server);
 
 /* ---------------------------------------------------- */
 
-int tcp_server_set_nonblocking(int fd) {
+int tcp_server_set_nonblocking(int fd)
+{
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags < 0) {
     return ERR_IO;
@@ -20,12 +21,14 @@ int tcp_server_set_nonblocking(int fd) {
   return SUCCESS;
 }
 
-int tcp_server_init(TCP_Server* _Server, const char* _port, tcp_server_on_accept _on_accept, void* _context) {
+int tcp_server_init(TCP_Server* _Server, const char* _port, tcp_server_on_accept _on_accept,
+                    void* _context)
+{
   if (!_Server || !_port || !_on_accept) {
     return ERR_INVALID_ARG;
   }
   _Server->context = _context;
-  _Server->on_accept = _on_accept; 
+  _Server->on_accept = _on_accept;
   _Server->context = _context;
   _Server->fd = -1;
   _Server->port = _port;
@@ -34,9 +37,9 @@ int tcp_server_init(TCP_Server* _Server, const char* _port, tcp_server_on_accept
 
   struct addrinfo addresses;
   memset(&addresses, 0, sizeof(addresses));
-  addresses.ai_family = AF_UNSPEC; /*Both IPV4 & IPV6*/
+  addresses.ai_family = AF_UNSPEC;     /*Both IPV4 & IPV6*/
   addresses.ai_socktype = SOCK_STREAM; /*TCP*/
-  addresses.ai_flags = AI_PASSIVE; /*All network interfaces*/
+  addresses.ai_flags = AI_PASSIVE;     /*All network interfaces*/
 
   struct addrinfo* res = NULL;
   int getAddressInfo = getaddrinfo(NULL, _Server->port, &addresses, &res);
@@ -46,16 +49,18 @@ int tcp_server_init(TCP_Server* _Server, const char* _port, tcp_server_on_accept
   }
 
   int fd = -1;
-  
-  for (struct addrinfo* addressInfo = res; addressInfo != NULL; addressInfo = addressInfo->ai_next) {
+
+  for (struct addrinfo* addressInfo = res; addressInfo != NULL;
+       addressInfo = addressInfo->ai_next) {
     fd = socket(addressInfo->ai_family, addressInfo->ai_socktype, addressInfo->ai_protocol);
-    if (fd < 0) continue; /*Try next*/
-    
+    if (fd < 0)
+      continue; /*Try next*/
+
     int opt = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) != 0) {
       perror("setsockopt");
     }
-  
+
     if (bind(fd, addressInfo->ai_addr, addressInfo->ai_addrlen) != 0) {
       perror("bind");
       close(fd);
@@ -80,20 +85,21 @@ int tcp_server_init(TCP_Server* _Server, const char* _port, tcp_server_on_accept
 
     printf("Server listening on port: %s\n", _Server->port);
     freeaddrinfo(res);
-	  
+
     _Server->state = TCP_SERVER_LISTENING;
     _Server->task = scheduler_create_task(_Server, tcp_server_taskwork);
 
     return SUCCESS;
   }
-  
+
   /*No addresses found*/
   freeaddrinfo(res);
   return ERR_IO;
 }
 
-
-int tcp_server_init_ptr(TCP_Server** _Server_Ptr, const char* _port, tcp_server_on_accept _on_accept, void* _context) {
+int tcp_server_init_ptr(TCP_Server** _Server_Ptr, const char* _port,
+                        tcp_server_on_accept _on_accept, void* _context)
+{
   if (!_Server_Ptr) {
     return ERR_INVALID_ARG;
   }
@@ -109,13 +115,14 @@ int tcp_server_init_ptr(TCP_Server** _Server_Ptr, const char* _port, tcp_server_
     free(server);
     return result;
   }
-  
+
   *(_Server_Ptr) = server;
 
   return SUCCESS;
 }
 
-int tcp_server_accept(TCP_Server *_Server) {
+int tcp_server_accept(TCP_Server* _Server)
+{
   if (!_Server) {
     return ERR_INVALID_ARG;
   }
@@ -145,41 +152,42 @@ int tcp_server_accept(TCP_Server *_Server) {
 
 void tcp_server_taskwork(void* _Context, uint64_t _MonTime)
 {
-  if (!_Context) 
+  if (!_Context)
     return;
   TCP_Server* server = (TCP_Server*)_Context;
-  
+
   TCPServerState next_state = server->state;
 
-  switch(server->state) {
-    case TCP_SERVER_INITIALIZING:
-      break;
-    case TCP_SERVER_LISTENING:
-      next_state = tcp_server_handle_listening(server, _MonTime);
-      break;
-    case TCP_SERVER_CONNECTING:
-      next_state = tcp_server_connection_handover(server);
-      break;
-    case TCP_SERVER_CONNECTED:
-      next_state = TCP_SERVER_LISTENING;
-      break;
-    case TCP_SERVER_ERROR:
-      break;
-    case TCP_SERVER_DISPOSING:
-      tcp_server_dispose(server);
-      return;
+  switch (server->state) {
+  case TCP_SERVER_INITIALIZING:
+    break;
+  case TCP_SERVER_LISTENING:
+    next_state = tcp_server_handle_listening(server, _MonTime);
+    break;
+  case TCP_SERVER_CONNECTING:
+    next_state = tcp_server_connection_handover(server);
+    break;
+  case TCP_SERVER_CONNECTED:
+    next_state = TCP_SERVER_LISTENING;
+    break;
+  case TCP_SERVER_ERROR:
+    break;
+  case TCP_SERVER_DISPOSING:
+    tcp_server_dispose(server);
+    return;
   }
   server->state = next_state;
 }
 
-TCPServerState tcp_server_handle_listening(TCP_Server* _Server, uint64_t _montime) {
-  
+TCPServerState tcp_server_handle_listening(TCP_Server* _Server, uint64_t _montime)
+{
+  (void)_montime;
   if (!_Server) {
     return TCP_SERVER_ERROR;
   }
 
   int result = tcp_server_accept(_Server);
-      
+
   if (result == SUCCESS) {
     /*Connection accepted*/
     return TCP_SERVER_CONNECTING;
@@ -188,7 +196,7 @@ TCPServerState tcp_server_handle_listening(TCP_Server* _Server, uint64_t _montim
   if (result == ERR_WOULD_BLOCK) {
     /*No connection yet*/
     return TCP_SERVER_LISTENING;
-  } 
+  }
 
   if (result == ERR_CONNECTION_FAIL || result == ERR_FATAL) {
 
@@ -198,8 +206,9 @@ TCPServerState tcp_server_handle_listening(TCP_Server* _Server, uint64_t _montim
       errno = ENOMEM;
       return TCP_SERVER_ERROR;
     } */
-    // Why do we malloc at fatal error? I commented it out because it runs AFTER dispose because of taskwork so no chance of freeing
-    
+    // Why do we malloc at fatal error? I commented it out because it runs AFTER dispose because of
+    // taskwork so no chance of freeing
+
     /*    args->port = "58080";
     args->on_accept = http_server_on_accept;
     args->context = _Server;
@@ -216,7 +225,7 @@ TCPServerState tcp_server_handle_listening(TCP_Server* _Server, uint64_t _montim
   return TCP_SERVER_ERROR;
 }
 
-TCPServerState tcp_server_connection_handover(TCP_Server* _Server) 
+TCPServerState tcp_server_connection_handover(TCP_Server* _Server)
 {
   if (!_Server) {
     return TCP_SERVER_ERROR;
@@ -230,9 +239,10 @@ TCPServerState tcp_server_connection_handover(TCP_Server* _Server)
   return TCP_SERVER_CONNECTED;
 }
 
-void tcp_server_dispose(TCP_Server *_Server) 
+void tcp_server_dispose(TCP_Server* _Server)
 {
-  if (!_Server) return;
+  if (!_Server)
+    return;
 
   if (_Server->task) {
     scheduler_destroy_task(_Server->task);
@@ -240,8 +250,7 @@ void tcp_server_dispose(TCP_Server *_Server)
   }
 
   printf("Args freed!\n");
-  if (_Server->args != NULL)
-  {
+  if (_Server->args != NULL) {
     free(_Server->args);
     _Server->args = NULL;
   }
@@ -257,7 +266,7 @@ void tcp_server_dispose(TCP_Server *_Server)
   _Server = NULL;
 }
 
-void tcp_server_dispose_ptr(TCP_Server** _ServerPtr) 
+void tcp_server_dispose_ptr(TCP_Server** _ServerPtr)
 {
   if (_ServerPtr == NULL || *(_ServerPtr) == NULL) {
     return;
@@ -266,4 +275,3 @@ void tcp_server_dispose_ptr(TCP_Server** _ServerPtr)
   free(*(_ServerPtr));
   *(_ServerPtr) = NULL;
 }
-
