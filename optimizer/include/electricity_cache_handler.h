@@ -1,8 +1,17 @@
 #ifndef __ELECTRICITY_CACHE_HANDLER_H__
 #define __ELECTRICITY_CACHE_HANDLER_H__
 
+#include "data_structs.h"
+
+#include <stdint.h>
+#include <time.h>
+
+/* ======================== STRUCTS ======================== */
+
 typedef struct
 {
+  Electricity_Spots spot;  
+  const char*       cache_path;
 
 } Electricity_Cache_Handler;
 
@@ -10,7 +19,7 @@ typedef struct
 
 int ech_init(Electricity_Cache_Handler* _ECH);
 
-int ech_update_cache(Electricity_Cache_Handler* _ECH);
+int ech_update_cache(Electricity_Cache_Handler* _ECH, time_t _start, time_t end);
 
 void ech_dispose(Electricity_Cache_Handler* _ECH);
 

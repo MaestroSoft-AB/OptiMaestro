@@ -22,12 +22,12 @@ typedef struct
 
 typedef struct
 {
-  Optimizer_Config config;
+  Optimizer_Config            config;
 
   Weather_Cache_Handler*      wch;
   Electricity_Cache_Handler*  ech;
 
-  pthread_t*  threads;
+  pthread_t*                  threads;
 
 } Optimizer;
 
@@ -35,7 +35,6 @@ typedef struct
 
 int optimizer_init(Optimizer* _OC);
 
-/* To update config struct while process is still running */
 int optimizer_config_set(Optimizer* _OC, const char* _path);
 
 /* Runs the optimizer with the given config, updating all data */

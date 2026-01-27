@@ -17,7 +17,7 @@ MAESTRO_DIR ?= ../external/MaestroCore
 MAESTRO_LIB := $(MAESTRO_DIR)/build/lib/libmaestrocore.a
 
 # Enable MaestroCore JSON (optional): make JSON=1
-JSON ?= 0
+JSON ?= 1
 
 # Temp dirs
 CACHE_DIR := data/cache
