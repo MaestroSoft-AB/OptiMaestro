@@ -80,7 +80,7 @@ $(BUILD_DIR)/$(SRC_DIR)/%.o: $(SRC_DIR)/%.c
 
 run: $(BIN)
 	@echo "Running $<..."
-	@$(BIN_DIR)/$(BIN)
+	@$(BIN)
 
 clean:
 	@echo "Cleaning build files..."
@@ -94,15 +94,15 @@ full-clean:
 
 valgrind: $(BIN)
 	@echo "Debugging $< using valgrind..."
-	@valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes $(BIN_DIR)/$(BIN)
+	@valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes $(BIN)
 
 gdb: $(BIN)
 	@echo "Debugging $< using gdb..."
-	@gdb $(BIN_DIR)/$(BIN)
+	@gdb $(BIN)
 
 run-asan: asan
 	@echo "Running ASan build..."
-	@$(BIN_DIR)/$(BIN)
+	@$(BIN)
 
 asan:
 	@$(MAKE) CC=$(CC) CFLAGS="$(CFLAGS) $(ASAN_FLAGS)" LDFLAGS="$(LDFLAGS) $(ASAN_FLAGS)" all
