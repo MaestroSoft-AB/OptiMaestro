@@ -48,13 +48,14 @@ typedef struct
 typedef struct
 {
   tcp_server_on_accept on_accept;
-  void* context;
-  int fd;
-  const char* port;
-  TCPServerState state;
   Scheduler_Task* task;
-  int client_fd;
   TCP_Init_Args* args;
+  void* context;
+  const char* port;
+
+  int fd;
+  int client_fd;
+  TCPServerState state;
 
 } TCP_Server;
 

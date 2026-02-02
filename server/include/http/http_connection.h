@@ -17,7 +17,7 @@
 #define HTTP_SERVER_CONNECTION_MAX_RETRIES                                                         \
   20 // max amount of times to loop parse functions before erroring
 #define HTTP_REQUEST_MAX_PARAMS 10
-
+typedef struct HTTP_Server_Connection HTTP_Server_Connection;
 /* The usecase of the function pointer is to let the connection instance point back to a server
  * nstance's function without knowing exactly what it is or needs */
 typedef int (*http_server_connection_on_request)(void* _context);
@@ -39,7 +39,7 @@ typedef enum
 
 } HTTPServerConnectionState;
 
-typedef struct
+struct HTTP_Server_Connection
 {
   HTTPServerConnectionState state;
   Scheduler_Task* task;
@@ -57,8 +57,7 @@ typedef struct
   http_server_connection_on_dispose on_dispose;
   int content_length;
   int weather_done;
-
-} HTTP_Server_Connection;
+};
 
 int http_server_connection_init(HTTP_Server_Connection* _Connection, int _fd);
 int http_server_connection_init_ptr(int _fd, HTTP_Server_Connection** _Connection_Ptr);

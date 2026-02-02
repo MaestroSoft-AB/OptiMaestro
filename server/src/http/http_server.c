@@ -138,6 +138,7 @@ int http_server_on_accept(int _fd, void* _Context)
 
 void http_server_taskwork(void* _context, uint64_t _montime)
 {
+  (void)_montime;
   if (!_context) {
     return;
   }

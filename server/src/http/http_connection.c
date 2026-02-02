@@ -331,6 +331,12 @@ HTTPServerConnectionState worktask_request_validate(HTTP_Server_Connection* _Con
   }
 
   _Connection->response->status_code = 200;
+
+  if (strcmp(req->path, "/echo") == 0 || strcmp(req->path, "api/v1/echo") == 0) {
+    _Connection->weather_done = 1;
+    return HTTP_SERVER_CONNECTION_RESPONDING;
+  }
+
   _Connection->on_request(_Connection->context);
   return HTTP_SERVER_CONNECTION_WEATHER_HANDOVER;
 }
@@ -571,6 +577,11 @@ void http_server_connection_dispose(HTTP_Server_Connection* _Connection)
   //   free(&_Connection->tcp_client);
   //   _Connection->tcp_client = NULL;
   // }
+
+  if (_Connection->response && _Connection->response->full_response) {
+    free(_Connection->response->full_response);
+    _Connection->response->full_response = NULL;
+  }
 
   http_parser_dispose(_Connection->request, _Connection->response);
   free(_Connection->request);

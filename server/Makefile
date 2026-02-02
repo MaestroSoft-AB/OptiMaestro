@@ -26,7 +26,7 @@ JSON ?= 0
 CACHE_DIR := data/cache
 
 # Compilation flags
-CFLAGS := -std=c99 -MMD -MP -Wall -Wextra -Wfatal-errors -g \
+CFLAGS := -std=c11 -MMD -MP -Wall -Wextra -Wfatal-errors -g \
 	-Iinclude \
 	-I$(MAESTRO_DIR)/modules/include \
 	-I$(MAESTRO_DIR)/utils/include
