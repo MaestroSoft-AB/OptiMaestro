@@ -52,7 +52,7 @@ OBJ := $(SRC_OBJ) $(CORE_OBJ) $(UTILS_OBJ) $(LIBS_OBJ)
 DEP := $(OBJ:.o=.d)
 
 # Binary name
-BIN := optimizer 
+BIN := $(BIN_DIR)/optimizer 
 
 # ==================== Recipes ====================
 
@@ -67,7 +67,7 @@ $(MAESTRO_LIB):
 $(BIN): $(OBJ) $(MAESTRO_LIB)
 	@echo "Linking..."
 	@mkdir -p $(BIN_DIR)
-	@$(CC) $(LDFLAGS) $(OBJ) $(MAESTRO_LIB) -o $(BIN_DIR)/$@ $(LIBS)
+	@$(CC) $(LDFLAGS) $(OBJ) $(MAESTRO_LIB) -o $@ $(LIBS)
 
 # asan: clean
 # 	@echo "Building ASan binary..."
@@ -99,7 +99,6 @@ valgrind: $(BIN)
 gdb: $(BIN)
 	@echo "Debugging $< using gdb..."
 	@gdb $(BIN_DIR)/$(BIN)
-
 
 run-asan: asan
 	@echo "Running ASan build..."

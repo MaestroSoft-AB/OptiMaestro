@@ -10,6 +10,7 @@ else
 endif
 
 BUILD_DIR := build
+BIN_DIR		:= ../bin
 
 # ----- Local server code -----
 SRC_DIR := src
@@ -47,7 +48,7 @@ endif
 LIBS := -lcurl
 
 # Binary name
-BIN := ../server_app
+BIN := $(BIN_DIR)/server
 
 # Map .c → .o (ONLY server sources)
 SRC_OBJ := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/$(SRC_DIR)/%.o,$(SRC))
@@ -68,6 +69,7 @@ $(MAESTRO_LIB):
 
 $(BIN): $(OBJ) $(MAESTRO_LIB)
 	@echo "Linking..."
+	@mkdir -p $(BIN_DIR)
 	@$(CC) $(LDFLAGS) $(OBJ) $(MAESTRO_LIB) -o $@ $(LIBS)
 
 asan: clean
