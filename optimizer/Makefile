@@ -59,29 +59,19 @@ BIN := optimizer
 all: $(BIN)
 	@echo "Build complete."
 
-$(BIN): $(OBJ)
+# Ensure MaestroCore is built (delegates to MaestroCore Makefile)
+$(MAESTRO_LIB):
+	@echo "Building MaestroCore (JSON=$(JSON))..."
+	@$(MAKE) -C $(MAESTRO_DIR) JSON=$(JSON)
+
+$(BIN): $(OBJ) $(MAESTRO_LIB)
 	@echo "Linking..."
 	@mkdir -p $(BIN_DIR)
-	@$(CC) $(LDFLAGS) $(OBJ) -o $(BIN_DIR)/$@ $(LIBS)
+	@$(CC) $(LDFLAGS) $(OBJ) $(MAESTRO_LIB) -o $(BIN_DIR)/$@ $(LIBS)
 
-asan: clean
-	@echo "Building ASan binary..."
-	@$(MAKE) CC=$(CC) CFLAGS="$(CFLAGS) $(ASAN_FLAGS)" LDFLAGS="$(LDFLAGS) $(ASAN_FLAGS)" all
-
-$(BUILD_DIR)/$(CORE_SRC_DIR)/%.o: ../$(CORE_SRC_DIR)/%.c
-	@echo "Compiling $<..."
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/$(UTILS_SRC_DIR)/%.o: ../$(UTILS_SRC_DIR)/%.c
-	@echo "Compiling $<..."
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/$(LIBS_SRC_DIR)/%.o: ../$(LIBS_SRC_DIR)/%.c
-	@echo "Compiling $<..."
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+# asan: clean
+# 	@echo "Building ASan binary..."
+# 	@$(MAKE) CC=$(CC) CFLAGS="$(CFLAGS) $(ASAN_FLAGS)" LDFLAGS="$(LDFLAGS) $(ASAN_FLAGS)" all
 
 $(BUILD_DIR)/$(SRC_DIR)/%.o: $(SRC_DIR)/%.c
 	@echo "Compiling $<..."
@@ -90,7 +80,7 @@ $(BUILD_DIR)/$(SRC_DIR)/%.o: $(SRC_DIR)/%.c
 
 run: $(BIN)
 	@echo "Running $<..."
-	@./$(BIN)
+	@$(BIN_DIR)/$(BIN)
 
 clean:
 	@echo "Cleaning build files..."
@@ -104,16 +94,16 @@ full-clean:
 
 valgrind: $(BIN)
 	@echo "Debugging $< using valgrind..."
-	@valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes ./$(BIN)
+	@valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes $(BIN_DIR)/$(BIN)
 
 gdb: $(BIN)
 	@echo "Debugging $< using gdb..."
-	@gdb ./$(BIN)
+	@gdb $(BIN_DIR)/$(BIN)
 
 
 run-asan: asan
 	@echo "Running ASan build..."
-	@./$(BIN)
+	@$(BIN_DIR)/$(BIN)
 
 asan:
 	@$(MAKE) CC=$(CC) CFLAGS="$(CFLAGS) $(ASAN_FLAGS)" LDFLAGS="$(LDFLAGS) $(ASAN_FLAGS)" all

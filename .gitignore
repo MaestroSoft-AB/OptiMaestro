@@ -83,7 +83,7 @@ fuzz_http_asan
 
 
 #Untracking these for now
-external/
+tmp/
 
 .env
-*/data/cache/*
+*/cache/*

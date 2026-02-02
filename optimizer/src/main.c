@@ -49,6 +49,7 @@ int main(int _argc, const char** _argv)
     /* TODO: Switch out printf statements for logger functions */
     if (sig_exit) {
       printf("%s - Shutdown...\n", _argv[0]);
+      optimizer_dispose(&Opti);
       // TODO: eventual cleanup of running tasks 
       exit(SUCCESS); 
     } else if (sig_ignore) {
@@ -66,7 +67,7 @@ int main(int _argc, const char** _argv)
       sig_update_config = 0;
     }
 
-    nanosleep(&req, NULL);
+    // nanosleep(&req, NULL);
   }
 
   return SUCCESS;

@@ -11,12 +11,12 @@
 
 typedef struct
 {
-  // Maybe store what implemented devices to provide data for and what data to fetch
-  
   uint8_t   max_threads;
 
   // bool      ext_spot;
   // bool      ext_weather;
+
+  // ECH_Config* ech_conf;
 
 } Optimizer_Config;
 
@@ -24,10 +24,8 @@ typedef struct
 {
   Optimizer_Config            config;
 
-  Weather_Cache_Handler*      wch;
-  Electricity_Cache_Handler*  ech;
-
-  pthread_t*                  threads;
+  Weather_Cache_Handler       wch;
+  Electricity_Cache_Handler   ech;
 
 } Optimizer;
 

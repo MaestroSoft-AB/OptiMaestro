@@ -19,9 +19,9 @@ typedef struct
 
 int ech_init(Electricity_Cache_Handler* _ECH);
 
-int ech_update_cache(Electricity_Cache_Handler* _ECH, time_t _start, time_t end);
+int ech_update_cache(Electricity_Cache_Handler* _ECH);
 
-void ech_dispose(Electricity_Cache_Handler* _ECH);
+void ech_dispose(Electricity_Cache_Handler* _ECH_Ptr);
 
 /* ========================================================= */
 

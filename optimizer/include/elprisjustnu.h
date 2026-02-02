@@ -30,7 +30,8 @@ typedef struct
 
 int elprisjustnu_init(Elprisjustnu_Spots* _Elpris_Spot);
 
-int elprisjustnu_update_cache(Elprisjustnu_Spots* _Elpris_Spot, Electricity_Spots* _Spot);
+int elprisjustnu_update_cache(Elprisjustnu_Spots* _Elpris_Spot, 
+                              Electricity_Spots* _Spot);
 
 int elprisjustnu_parse(Elprisjustnu_Spots* _Elpris_Spot, Electricity_Spots* _Spot);
 
