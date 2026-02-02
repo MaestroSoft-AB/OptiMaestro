@@ -22,11 +22,11 @@ config_get_values(
     keys,
     values,
     sizeof(root),
-    4
+    4 //number of keys(buffers to store the results)
 );
 
 int enabled = strcmp(enabled_str, "true") == 0;
-int port = atoi(port_str);
+int port = atoi(port_str); //atoi to convert string to integer (start_http_server (port, root, keepalive) needs an integer)
 int keepalive = strcmp(keepalive_str, "true") == 0;
 
 if (enabled) {

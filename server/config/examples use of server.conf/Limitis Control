@@ -1,0 +1,23 @@
+const char *keys[] = {
+    "limits.max_connections",
+    "limits.max_payload_size"
+};
+
+char conn_str[16];
+char payload_str[16];
+
+char *values[] = {
+    conn_str,
+    payload_str
+};
+
+config_get_values(
+    "server/config/server.conf",
+    keys,
+    values,
+    sizeof(conn_str),
+    2 //number of keys(buffers to store the results)
+);
+
+int max_connections = atoi(conn_str);
+int max_payload = atoi(payload_str);

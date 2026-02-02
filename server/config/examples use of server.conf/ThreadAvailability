@@ -19,7 +19,7 @@ config_get_values(
     keys,
     values,
     sizeof(threads_str),
-    3
+    3 //number of keys(buffers to store the results)
 );
 
 int enabled = strcmp(enabled_str, "true") == 0;

@@ -6,7 +6,7 @@ const char *keys[] = {
 
 char host[64];
 char port_str[16];
-char backlog_str[16];
+char backlog_str[16]; // 
 
 char *values[] = {
     host,
@@ -19,10 +19,10 @@ config_get_values(
     keys,
     values,
     sizeof(host),
-    3
+    3 //number of keys(buffers to store the results)
 );
 
 int port = atoi(port_str);
-int backlog = atoi(backlog_str);
+int backlog = atoi(backlog_str); //atoi to convert string to integer (start_tcp_server (host, port, backlog) needs an integer)
 
 start_tcp_server(host, port, backlog);

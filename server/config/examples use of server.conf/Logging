@@ -1,0 +1,23 @@
+const char *keys[] = {
+    "log.level",
+    "log.path"
+};
+
+char level[16];
+char path[256];
+
+char *values[] = {
+    level,
+    path
+};
+
+config_get_values(
+    "server/config/server.conf",
+    keys,
+    values,
+    sizeof(path),
+    2 //number of keys(buffers to store the results)
+);
+
+set_log_level(level);
+set_log_output(path);

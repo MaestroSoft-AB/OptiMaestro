@@ -16,7 +16,7 @@ config_get_values(
     keys,
     values,
     sizeof(cache_str),
-    2
+    2 //number of keys(buffers to store the results)
 );
 
 int cache_enabled = strcmp(cache_str, "true") == 0;
