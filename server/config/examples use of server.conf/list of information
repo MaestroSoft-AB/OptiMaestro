@@ -1,0 +1,19 @@
+const char *keys[] = { "upstream.servers" };
+
+char servers_str[256];
+char *values[] = { servers_str };
+
+config_get_values(
+    "server/config/server.conf",
+    keys,
+    values,
+    sizeof(servers_str),
+    1
+);
+
+char *token = strtok(servers_str, ",");
+while (token) {
+    register_upstream(token);
+    token = strtok(NULL, ",");
+}
+

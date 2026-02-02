@@ -1,0 +1,28 @@
+const char *keys[] = {
+    "tcp.host",
+    "tcp.port",
+    "tcp.backlog"
+};
+
+char host[64];
+char port_str[16];
+char backlog_str[16];
+
+char *values[] = {
+    host,
+    port_str,
+    backlog_str
+};
+
+config_get_values(
+    "server/config/server.conf",
+    keys,
+    values,
+    sizeof(host),
+    3
+);
+
+int port = atoi(port_str);
+int backlog = atoi(backlog_str);
+
+start_tcp_server(host, port, backlog);

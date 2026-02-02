@@ -1,0 +1,31 @@
+const char *keys[] = {
+    "worker.enabled",
+    "worker.threads",
+    "worker.queue_size"
+};
+
+char enabled_str[8];
+char threads_str[16];
+char queue_str[16];
+
+char *values[] = {
+    enabled_str,
+    threads_str,
+    queue_str
+};
+
+config_get_values(
+    "server/config/server.conf",
+    keys,
+    values,
+    sizeof(threads_str),
+    3
+);
+
+int enabled = strcmp(enabled_str, "true") == 0;
+int threads = atoi(threads_str);
+int queue_size = atoi(queue_str);
+
+if (enabled && threads > 0) {
+    create_thread_pool(threads, queue_size);
+}

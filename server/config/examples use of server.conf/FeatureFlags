@@ -1,0 +1,23 @@
+const char *keys[] = {
+    "feature.cache",
+    "feature.metrics"
+};
+
+char cache_str[8];
+char metrics_str[8];
+
+char *values[] = {
+    cache_str,
+    metrics_str
+};
+
+config_get_values(
+    "server/config/server.conf",
+    keys,
+    values,
+    sizeof(cache_str),
+    2
+);
+
+int cache_enabled = strcmp(cache_str, "true") == 0;
+int metrics_enabled = strcmp(metrics_str, "true") == 0;
