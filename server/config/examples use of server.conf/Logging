@@ -12,7 +12,7 @@ char *values[] = {
 };
 
 config_get_values(
-    "server/config/server.conf",
+    "server/config/system.conf",
     keys,
     values,
     sizeof(path),
