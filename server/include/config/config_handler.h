@@ -1,4 +1,4 @@
-#indef CONFIG_HANDLER_H
+#ifdef CONFIG_HANDLER_H
 #define CONFIG_HANDLER_H
 
 #include <stddef.h>
