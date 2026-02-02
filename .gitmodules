@@ -1,3 +1,7 @@
 [submodule "external/MaestroCore"]
 	path = external/MaestroCore
 	url = git@github.com:MaestroSoft-AB/MaestroCore.git
+
+[submodule "external/cJSON"]
+	path = external/cJSON
+	url = https://github.com/DaveGamble/cJSON.git

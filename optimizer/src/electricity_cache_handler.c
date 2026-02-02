@@ -9,22 +9,27 @@
 #include <string.h>
 #include <unistd.h>
 
+/* --------------------------- Internal --------------------------- */
 
-#define PRICE_CLASS 3 // This should be read from config
-#define ECH_BASE_CACHE_PATH "./data/cache"
+#define PRICE_CLASS 3 // These should be read from config
+#define ECH_BASE_CACHE_PATH "../data/spots"
 
-/* ----------------------- Internal functions -----------------------*/
+const char* ech_get_cache_filepath(const char* _base_path, 
+                                   uint8_t _price_class, 
+                                   time_t _start, 
+                                   time_t _end);
 
 int ech_validate_cache(const char* _cache_path);
 
-const char* ech_get_cache_filepath(const char* _base_path, uint8_t _price_class, time_t _start, time_t _end);
+int ech_write_cache(Electricity_Spots* _Spot, const char* _cache_path);
 
-/* ----------------------------------------------------------------- */
+/* ---------------------------------------------------------------- */
 
 int ech_init(Electricity_Cache_Handler* _ECH)
 {
   memset(_ECH, 0, sizeof(Electricity_Cache_Handler));
   memset(&_ECH->spot, 0, sizeof(Electricity_Spots));
+  memset(&_ECH->epjn_spot, 0, sizeof(Elprisjustnu_Spots));
 
   return SUCCESS;
 }
@@ -36,24 +41,6 @@ int ech_update_cache(Electricity_Cache_Handler* _ECH)
   /* Free previous path allocation */
   if (_ECH->cache_path != NULL)
     free((void*)_ECH->cache_path);
-
-/*
-  time_t now = time(NULL);
-  struct tm local_now;
-  localtime_r(&now, &local_now);
-
-  struct tm local_tmrw = local_now;
-  local_tmrw.tm_yday++;
-
-  char startdate[ISO_DATE_STRING_LEN + 1];
-  char enddate[ISO_DATE_STRING_LEN + 1];
-
-  snprintf(startdate, ISO_DATE_STRING_LEN + 1, ISO_DATE_STRING,
-      local_now.tm_year, local_now.tm_mon + 1, local_now.tm_mday);
-
-  snprintf(enddate, ISO_DATE_STRING_LEN + 1, ISO_DATE_STRING,
-      local_tmrw.tm_year, local_tmrw.tm_mon + 1, local_tmrw.tm_mday);
-*/
 
   time_t today = epoch_now_day();
   time_t tmrw = today + 86400;
@@ -76,9 +63,8 @@ int ech_update_cache(Electricity_Cache_Handler* _ECH)
     // parse
   }
 
-  printf("%s\r\n", _ECH->cache_path);
+  printf("ECH cache_path: %s\r\n", _ECH->cache_path);
 
-  sleep(1); // remove!
 
   return SUCCESS;
 }
@@ -122,7 +108,6 @@ const char* ech_get_cache_filepath(const char* _base_path, uint8_t _price_class,
 
 int ech_validate_cache(const char* _cache_path)
 {
-
   int update_hour = 13;
 
   if (_cache_path)
@@ -145,7 +130,6 @@ int ech_validate_cache(const char* _cache_path)
 
 void ech_dispose(Electricity_Cache_Handler* _ECH)
 {
-  printf("disposing ECH, cache path: %s\\r\\r", _ECH->cache_path);
   if (_ECH->cache_path != NULL)
     free((void*)_ECH->cache_path);
 

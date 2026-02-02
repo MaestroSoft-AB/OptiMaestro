@@ -1,8 +1,11 @@
 #ifndef __WEATHER_CACHE_HANDLER_H__
 #define __WEATHER_CACHE_HANDLER_H__
 
+#include "data/weather_structs.h"
+
 typedef struct
 {
+  Weather   weather;
 
 } Weather_Cache_Handler;
 

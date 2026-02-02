@@ -1,7 +1,8 @@
 #ifndef __ELECTRICITY_CACHE_HANDLER_H__
 #define __ELECTRICITY_CACHE_HANDLER_H__
 
-#include "data_structs.h"
+#include "data/electricity_structs.h"
+#include "elprisjustnu.h"
 
 #include <stdint.h>
 #include <time.h>
@@ -10,8 +11,10 @@
 
 typedef struct
 {
-  Electricity_Spots spot;  
-  const char*       cache_path;
+  Electricity_Spots   spot;  
+  Elprisjustnu_Spots  epjn_spot;
+
+  const char*         cache_path;
 
 } Electricity_Cache_Handler;
 

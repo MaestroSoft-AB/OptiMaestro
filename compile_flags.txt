@@ -1,14 +1,8 @@
 # === Client ===
 -Iclient/include
 
-# === Client C++ ===
--Iclient_cpp/include
-
-# === Core Modules ===
--Icore/modules/include
-
-# === Core Utils ===
--Iutils/include
+# === Common ===
+-Icommon/include
 
 # === External Libraries ===
 -Ilibs/include

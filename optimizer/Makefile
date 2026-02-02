@@ -8,28 +8,33 @@ CC := gcc
 BUILD_DIR := build
 BIN_DIR		:= ../bin
 
-# ----- Local server code -----
-SRC_DIR := src
-SRC := $(shell find -L $(SRC_DIR) -type f -name '*.c')
+# ----- Local source files -----
+SRC_DIR 			 := src
+COMMON_SRC_DIR := ../common/src
+
+SRC 			 := $(shell find -L $(SRC_DIR) -type f -name '*.c')
+COMMON_SRC := $(shell find -L $(COMMON_SRC_DIR) -type f -name '*.c')
 
 # ----- MaestroCore (submodule) -----
 MAESTRO_DIR ?= ../external/MaestroCore
 MAESTRO_LIB := $(MAESTRO_DIR)/build/lib/libmaestrocore.a
+CJSON_DIR 	:= ../external/cJSON # Needed this for local include
 
 # Enable MaestroCore JSON (optional): make JSON=1
-JSON ?= 1
+JSON := 1
 
 # Temp dirs
 CACHE_DIR := data/cache
 
 # Compilation flags
 CFLAGS := -std=c99 -MMD -MP -Wall -Wextra -Wfatal-errors -g \
-	-Iinclude \
-	-I$(MAESTRO_DIR)/modules/include \
-	-I$(MAESTRO_DIR)/utils/include
+	-Iinclude 																								\
+	-I$(MAESTRO_DIR)/modules/include 													\
+	-I$(MAESTRO_DIR)/utils/include														\
+	-I../common/include
 
 ifeq ($(JSON),1)
-	CFLAGS += -DMAESTROUTILS_WITH_CJSON
+	CFLAGS += -DMAESTROUTILS_WITH_CJSON -I$(CJSON_DIR)
 endif
 
 ASAN_FLAGS := -O1 -g3 -fno-omit-frame-pointer -fsanitize=address,undefined
@@ -41,12 +46,10 @@ LDFLAGS := -flto -Wl,--gc-sections
 LIBS := -lcurl
 
 # Map .c → .o
-SRC_OBJ   := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/$(SRC_DIR)/%.o,$(SRC))
-CORE_OBJ  := $(patsubst ../$(CORE_SRC_DIR)/%.c,$(BUILD_DIR)/$(CORE_SRC_DIR)/%.o,$(CORE_SRC))
-UTILS_OBJ := $(patsubst ../$(UTILS_SRC_DIR)/%.c,$(BUILD_DIR)/$(UTILS_SRC_DIR)/%.o,$(UTILS_SRC))
-LIBS_OBJ  := $(patsubst ../$(LIBS_SRC_DIR)/%.c,$(BUILD_DIR)/$(LIBS_SRC_DIR)/%.o,$(LIBS_SRC))
+SRC_OBJ   	:= $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/$(SRC_DIR)/%.o,$(SRC))
+COMMON_OBJ  := $(patsubst $(COMMON_SRC_DIR)/%.c,$(BUILD_DIR)/$(COMMON_SRC_DIR)/%.o,$(COMMON_SRC))
 
-OBJ := $(SRC_OBJ) $(CORE_OBJ) $(UTILS_OBJ) $(LIBS_OBJ)
+OBJ := $(SRC_OBJ) $(COMMON_OBJ) 
 
 # Dependency files (.d)
 DEP := $(OBJ:.o=.d)

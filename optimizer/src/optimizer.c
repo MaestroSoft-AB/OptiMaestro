@@ -5,6 +5,8 @@
 #include <string.h>
 #include <pthread.h>
 
+/* --------------------------- Internal --------------------------- */
+
 pthread_mutex_t optimizer_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 typedef struct 
@@ -34,6 +36,8 @@ void* thread_func(void* _arg)
 
   return NULL; 
 }
+
+/* ---------------------------------------------------------------- */
 
 int optimizer_init(Optimizer* _OC)
 {
@@ -72,8 +76,7 @@ int optimizer_config_set(Optimizer* _OC, const char* _path)
 
 int optimizer_run(Optimizer* _OC)
 {
-  int i, res;
-  int max_threads = _OC->config.max_threads;
+  int res;
 
   if (_OC->config.max_threads < 3)
   {
@@ -124,7 +127,6 @@ int optimizer_run(Optimizer* _OC)
 
 void optimizer_dispose(Optimizer* _OC)
 {
-  printf("disposing Optimizer\r\n");
   ech_dispose(&_OC->ech);
   wch_dispose(&_OC->wch);
 
