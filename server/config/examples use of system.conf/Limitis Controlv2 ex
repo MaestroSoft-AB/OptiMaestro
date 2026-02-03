@@ -1,0 +1,40 @@
+// Example: reading connection limits from system.conf
+//
+// If you run the server from the repo root, use: "server/config/system.conf"
+// If you run the server from inside the server/ folder, use: "config/system.conf"
+
+#include "config/config_handler.h"
+#include <stdlib.h>  // atoi
+
+const char *keys[] = {
+    "limits.max_connections",
+    "limits.max_payload_size"
+};
+
+char conn_str[16];
+char payload_str[16];
+
+char *values[] = {
+    conn_str,
+    payload_str
+};
+//dynamically calculate the number of keys, dividing the total size of the keys array by the size of a single element
+// to get the number of elements in the array
+size_t key_count = sizeof(keys) / sizeof(keys[0]);
+//rc stands for return code
+int rc = config_get_value(
+    "server/config/system.conf",
+    keys,
+    values,
+    sizeof(conn_str),
+    key_count //instead of using a hardcoded number, we calculate the number of keys, unlike other examples
+);
+
+if (rc != 0) {
+    // rc == -1: file open error
+    // rc == -2: at least one key was not found
+    // handle error here
+}
+
+int max_connections = atoi(conn_str);
+int max_payload = atoi(payload_str);

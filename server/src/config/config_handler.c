@@ -16,7 +16,7 @@ static void trim(char *s) {
 
 //core function
 
-int config_get_values(
+int config_get_value(
     const char *config_path,
     const char *keys[],
     char *values[],

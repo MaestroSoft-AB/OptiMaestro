@@ -1,0 +1,69 @@
+#include "config/config_handler.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+// Keep all output buffers the same size because config_get_value() uses a single
+// max_value_len for every value buffer.
+#define CFGVAL_LEN 64
+
+void example_read_scheduler_config(void)
+{
+// doesnt run by it self unless it gets called from somewhere else
+// just list of keys to read from system.conf
+	const char *keys[] = {
+		"scheduler.enabled",
+		"scheduler.type",
+		"scheduler.interval_ms",
+		"scheduler.max_jobs",
+		"scheduler.queue_size"
+	};
+// CFGVAL = length of a config value buffer
+	char enabled_str[CFGVAL_LEN];
+	char type_str[CFGVAL_LEN];
+	char interval_ms_str[CFGVAL_LEN];
+	char max_jobs_str[CFGVAL_LEN];
+	char queue_size_str[CFGVAL_LEN];
+
+	char *values[] = {
+		enabled_str,
+		type_str,
+		interval_ms_str,
+		max_jobs_str,
+		queue_size_str
+	};
+    //dynamically calculate the number of keys, so we dont hardcode the number of keys
+	size_t key_count = sizeof(keys) / sizeof(keys[0]);
+
+	int rc = config_get_value(
+		"server/config/system.conf",
+		keys,
+		values,
+		CFGVAL_LEN,
+		key_count
+	);
+
+	if (rc != 0) {
+		printf("Failed to read scheduler config (rc=%d)\n", rc);
+		return;
+	}
+
+	int scheduler_enabled =
+		(strcmp(enabled_str, "true") == 0) || (strcmp(enabled_str, "1") == 0);
+
+	long interval_ms = strtol(interval_ms_str, NULL, 10);
+	long max_jobs = strtol(max_jobs_str, NULL, 10);
+	long queue_size = strtol(queue_size_str, NULL, 10);
+
+	if (scheduler_enabled) {
+		printf("Scheduler enabled\n");
+		printf("type=%s interval_ms=%ld max_jobs=%ld queue_size=%ld\n",
+			   type_str, interval_ms, max_jobs, queue_size);
+
+		// Example of how you'd use these values:
+		// scheduler_init(type_str, (int)interval_ms, (int)max_jobs, (int)queue_size);
+		// scheduler_start();
+	} else {
+		printf("Scheduler disabled\n");
+	}
+}

@@ -14,7 +14,7 @@ char *values[] = {
     backlog_str
 };
 
-config_get_values(
+config_get_value(
     "server/config/system.conf",
     keys,
     values,
