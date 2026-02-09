@@ -18,7 +18,6 @@
 
 const char* ech_get_cache_filepath(const char* _base_path,
                                    time_t _start,
-                                   time_t _end,
                                    SpotPriceClass _price_class, 
                                    SpotCurrency _currency);
 
@@ -50,8 +49,17 @@ int ech_update_cache(Electricity_Cache_Handler* _ECH)
 
   time_t today = epoch_now_day();
   time_t tmrw = today + 86400;
+
+  int update_hour = 13; // Now the question is what time(s) ech should be run.. 
+  if (time_is_at_or_after_hour(update_hour)) {
+    printf("Fetching tomorrow's spots...\r\n");
+    _ECH->cache_path = ech_get_cache_filepath(ECH_BASE_CACHE_PATH, tmrw, _ECH->spot.price_class, SPOT_SEK);
+  }
+  else {
+    printf("Fetching today's spots...\r\n");
+    _ECH->cache_path = ech_get_cache_filepath(ECH_BASE_CACHE_PATH, today, _ECH->spot.price_class, SPOT_SEK);
+  }
   
-  _ECH->cache_path = ech_get_cache_filepath(ECH_BASE_CACHE_PATH, today, tmrw, _ECH->spot.price_class, SPOT_SEK);
   if (!_ECH->cache_path) {
     perror("ech_set_cache_filepath");
     return ERR_FATAL;
@@ -107,19 +115,15 @@ int ech_update_cache(Electricity_Cache_Handler* _ECH)
 }
 
 /* Define and return the cache path from given parameters */
-const char* ech_get_cache_filepath(const char* _base_path, time_t _start, time_t _end, SpotPriceClass _price_class, SpotCurrency _currency)
+/* TODO: create recursive directories for year/month */
+const char* ech_get_cache_filepath(const char* _base_path, time_t _start, SpotPriceClass _price_class, SpotCurrency _currency)
 {
   char path_buf[512];
 
-  /* Set time-range (should probably shorten) */
+  /* Set timestamp (should probably shorten) */
   const char* start_str = parse_epoch_to_iso_datetime_string(&_start);
   if (start_str == NULL)
     return NULL;
-  const char* end_str = parse_epoch_to_iso_datetime_string(&_end);
-  if (end_str == NULL) {
-    free((void*)start_str);
-    return NULL;
-  }
 
   /* Set currency, only SEK and EUR for now */
   char* currency;
@@ -134,15 +138,13 @@ const char* ech_get_cache_filepath(const char* _base_path, time_t _start, time_t
 
   /* Build path name */
   snprintf(path_buf, sizeof(path_buf), 
-          "%s/SE%01i-%s_%s_%s.json",
+          "%s/SE%01i-%s_%s.json",
           _base_path,
           _price_class + 1,
           currency,
-          start_str,
-          end_str);
+          start_str);
 
   free((void*)start_str);
-  free((void*)end_str);
 
   size_t path_len = strlen(path_buf);
   char* path = malloc(path_len + 1);
@@ -157,18 +159,11 @@ const char* ech_get_cache_filepath(const char* _base_path, time_t _start, time_t
 
 int ech_validate_cache(const char* _cache_path)
 {
-  int update_hour = 13;
-
   if (!_cache_path)
     return ERR_INVALID_ARG;
   
   if (file_exists(_cache_path)) {
-    // TODO: Actually validate something 
-    // -- but we shouldn't probably decide to get next days cache from update_hour here
-    // if (time_is_at_or_after_hour(update_hour)) {
-    //   //ExtAPI update
-    //   printf("ECH update from ext api");
-    // }
+    // TODO: Actually validate something?
     return SUCCESS;
   }
   return ERR_NOT_FOUND;

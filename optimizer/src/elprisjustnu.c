@@ -37,7 +37,7 @@ int epjn_update(EPJN_Spots* _EPJN,
   /* Define URL and spot price interval */
   struct tm* tm = gmtime(&_date);
   int year = tm->tm_year + 1900;
-  int month = tm->tm_mon;
+  int month = tm->tm_mon + 1;
   int day = tm->tm_mday;
 
   char url[EPJN_URL_LEN + 1];
