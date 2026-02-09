@@ -1,7 +1,8 @@
 #ifndef __ELRPISJUSTNU_H__
 #define __ELRPISJUSTNU_H__
 
-#define ELPRISJUSTNU_URL "https://www.elprisetjustnu.se/api/v1/prices/%i/%i-%i_%s.json"
+#define EPJN_URL "https://www.elprisetjustnu.se/api/v1/prices/%04i/%02i-%02i_SE%c.json"
+#define EPJN_URL_LEN 64 
 
 #include "data/electricity_structs.h"
 
@@ -12,30 +13,35 @@
 
 typedef struct
 {
-  time_t  timestamp;
-  float   spot_price;
+  time_t  time_start;
+  time_t  time_end;
+  float   spot_sek;
+  float   spot_eur;
+  float   exr;
 
-} Elprisjustnu_Spot_Price;
+} EPJN_Spot_Price;
 
 typedef struct
 {
-  Elprisjustnu_Spot_Price* prices; 
-  int                      prices_c;
-  char                     currency[4];
-  uint8_t                  price_class;  // 1-4, i.e SE1, SE2 etc.
+  EPJN_Spot_Price* prices;
+  int              price_count;
+  SpotPriceClass   price_class;
 
-} Elprisjustnu_Spots;
+} EPJN_Spots;
 
 /* ======================= INTERFACE ======================= */
 
-int elprisjustnu_init(Elprisjustnu_Spots* _Elpris_Spot);
+int epjn_init(EPJN_Spots* _Elpris_Spot);
 
-int elprisjustnu_update(Elprisjustnu_Spots* _Elpris_Spot);
+int epjn_update(EPJN_Spots* _Elpris_Spot, 
+                        SpotPriceClass _price_class, 
+                        time_t _date);
 
-int elprisjustnu_parse(Elprisjustnu_Spots* _Elpris_Spot, 
-                       Electricity_Spots* _Spot);
+int epjn_parse(EPJN_Spots* _Elpris_Spot, 
+                       Electricity_Spots* _Spot,
+                       SpotCurrency _currency);
 
-void elprisjustnu_dispose(Elprisjustnu_Spots* _Elpris_Spot);
+void epjn_dispose(EPJN_Spots* _Elpris_Spot);
 
 /* ========================================================= */
 
@@ -47,12 +53,13 @@ Example json:
   {
     "SEK_per_kWh": 1.08563,
     "EUR_per_kWh": 0.10257,
-    "EXR": 10.584272,       // EXR = Växelkursen som används för denna dag från EUR till SEK. 
+    "EXR": 10.584272,
     "time_start": "2026-01-26T00:00:00+01:00",
     "time_end": "2026-01-26T00:15:00+01:00"
   },
   ...
 ]
 */
+// EXR = Växelkursen som används från EUR till SEK.
 
 #endif

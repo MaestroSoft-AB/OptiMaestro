@@ -11,7 +11,9 @@
 
 typedef struct
 {
-  uint8_t   max_threads;
+  const char*  conf_path;
+  const char*  data_path;
+  uint8_t      max_threads;
 
   // bool      ext_spot;
   // bool      ext_weather;

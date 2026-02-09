@@ -1,11 +1,16 @@
 #include "optimizer.h"
 #include "maestroutils/error.h"
+#include "maestroutils/file_utils.h"
+
+#include "maestromodules/curl.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <pthread.h>
 
 /* --------------------------- Internal --------------------------- */
+
+#define DATA_DIR "../data" // TODO: Move to conf
 
 pthread_mutex_t optimizer_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -41,8 +46,14 @@ void* thread_func(void* _arg)
 
 int optimizer_init(Optimizer* _OC)
 {
-  memset(_OC, 0, sizeof(Optimizer));
   int res;
+
+#ifdef CURL_GLOBAL_DEFAULT
+  curl_global_init(CURL_GLOBAL_DEFAULT); 
+#endif
+
+  memset(_OC, 0, sizeof(Optimizer));
+  create_directory_if_not_exists(DATA_DIR);
 
   res = optimizer_config_set(_OC, OPTI_CONFIG_PATH);
   if (res != 0) {
@@ -129,6 +140,10 @@ void optimizer_dispose(Optimizer* _OC)
 {
   ech_dispose(&_OC->ech);
   wch_dispose(&_OC->wch);
+
+#ifdef CURL_GLOBAL_DEFAULT
+  curl_global_cleanup(); 
+#endif
 
   _OC = NULL;
 }
