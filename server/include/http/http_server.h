@@ -39,6 +39,7 @@ typedef struct
   void*                     context;
 	Scheduler_Task*           task;
 	TCP_Server                tcp_server; //Redo as ptr
+  char                      port[16];
   HTTPServerState           state;
   HTTPServerErrorState      error_state;
   int                       client_fd;

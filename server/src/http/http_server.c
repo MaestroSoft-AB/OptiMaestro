@@ -1,5 +1,10 @@
 #include "http/http_server.h"
 
+#include <maestroutils/config_handler.h>
+
+#include <stdio.h>
+#include <string.h>
+
 /* -----------------Internal Functions----------------- */
 void http_server_taskwork(void* _context, uint64_t _montime);
 int http_server_on_accept(int _fd, void* _context);
@@ -15,6 +20,22 @@ int http_server_init(HTTP_Server* _HTTPServer, http_server_on_connection _Callba
     return ERR_INVALID_ARG;
   }
 
+  /* Default port (previous behavior) */
+  snprintf(_HTTPServer->port, sizeof(_HTTPServer->port), "%s", "10580");
+
+  /* Prefer http.port from config if present.
+     When started via server/Makefile, CWD is typically server/, so this resolves to server/config/system.conf. */
+  {
+    const char* keys[] = {"http.port"};
+    char port_buf[16] = {0};
+    char* values[] = {port_buf};
+    if (config_get_value("config/system.conf", keys, values, sizeof(port_buf), 1) == 0) {
+      if (port_buf[0] != 0) {
+        snprintf(_HTTPServer->port, sizeof(_HTTPServer->port), "%s", port_buf);
+      }
+    }
+  }
+
   _HTTPServer->context = _ContextServer;
   _HTTPServer->on_connection = _Callback;
   _HTTPServer->state = HTTP_SERVER_INITIALIZING;
@@ -26,8 +47,8 @@ int http_server_init(HTTP_Server* _HTTPServer, http_server_on_connection _Callba
   _HTTPServer->retry_args = NULL;
   _HTTPServer->retry_function = NULL;
 
-  int result =
-      tcp_server_init(&_HTTPServer->tcp_server, "10580", http_server_on_accept, _HTTPServer);
+  int result = tcp_server_init(&_HTTPServer->tcp_server, _HTTPServer->port, http_server_on_accept,
+                               _HTTPServer);
   if (result != SUCCESS) {
     _HTTPServer->state = HTTP_SERVER_ERROR;
     _HTTPServer->error_state = HTTP_SERVER_ERROR_TCP_INIT_FAILED;
@@ -39,7 +60,7 @@ int http_server_init(HTTP_Server* _HTTPServer, http_server_on_connection _Callba
 
     /*Pack the arguments needed for retrying tcp_init*/
     args->tcp_server = &_HTTPServer->tcp_server;
-    args->port = "10580";
+    args->port = _HTTPServer->port;
     args->on_accept = http_server_on_accept;
     args->context = _HTTPServer;
 
