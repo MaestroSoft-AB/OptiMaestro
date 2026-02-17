@@ -67,7 +67,7 @@ int main(int _argc, const char** _argv)
       sig_update_config = 0;
     }
 
-    // nanosleep(&req, NULL);
+    nanosleep(&req, NULL);
   }
 
   return SUCCESS;

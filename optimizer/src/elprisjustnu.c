@@ -27,7 +27,7 @@ int epjn_init(EPJN_Spots* _EPJN)
 /** Call epjn API to build struct values */
 int epjn_update(EPJN_Spots* _EPJN, 
                         SpotPriceClass _pc, 
-                        time_t _date)
+                        const time_t _date)
 {
   if (_EPJN->prices != NULL)
     free(_EPJN->prices); // free if still allocated for some reason
@@ -121,7 +121,7 @@ int epjn_update(EPJN_Spots* _EPJN,
 
 const char* epjn_get_response_json(const char* _url)
 {
-  printf("We make it here, url: %s\r\n", _url);
+  // printf("We make it here, url: %s\r\n", _url);
   // TODO: Replace with http_client
   Curl_Data C_Data;
   if (curl_init(&C_Data) != 0)
@@ -145,16 +145,16 @@ const char* epjn_get_response_json(const char* _url)
   response[C_Data.size] = '\0';
   curl_dispose(&C_Data);
 
-  printf("===== Elprisjustnu Response JSON =====\n\n%s\n\n", response);
+  // printf("===== Elprisjustnu Response JSON =====\n\n%s\n\n", response);
   return response;
 }
 
 /** Parses EPJN struct to Spot struct
  * _currency: 0 = SEK, 1 = EUR
  * _Spot->prices will be free()'d if not NULL */
-int epjn_parse(EPJN_Spots* _EPJN, 
+int epjn_parse(const EPJN_Spots* const _EPJN, 
                Electricity_Spots* _Spots,
-               SpotCurrency _currency)
+               const SpotCurrency _currency)
 {
   if (!_EPJN || !_Spots)
     return ERR_INVALID_ARG;
@@ -173,10 +173,8 @@ int epjn_parse(EPJN_Spots* _EPJN,
   }
 
   /* Set price class */
-  int i;
   // for (i = 0; i < 4; i++)
   //   _Spots->price_class[i] = _EPJN->price_class[i];
-  _Spots->price_class = 
 
   /* Allocate prices array */
   _Spots->price_count = _EPJN->price_count;
@@ -190,6 +188,7 @@ int epjn_parse(EPJN_Spots* _EPJN,
   _Spots->interval = 1440 / _Spots->price_count;
 
   /* Set prices */
+  int i;
   for (i = 0; i < _Spots->price_count; i++) {
     _Spots->prices[i].time_start = _EPJN->prices[i].time_start;
     _Spots->prices[i].time_end = _EPJN->prices[i].time_end;

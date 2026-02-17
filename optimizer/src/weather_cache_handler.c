@@ -3,24 +3,23 @@
 #include <stdio.h>
 #include <unistd.h>
 
-int wch_init(Weather_Cache_Handler* _ECH)
+int wch_init(WCH* _WCH)
 {
+  _WCH = NULL;
   return 0;
 }
 
-int wch_update_cache(Weather_Cache_Handler* _ECH)
+int wch_update_cache(WCH* _WCH, WCH_Conf* _Conf)
 {
-  for (int i = 0; i < 5; i++)
-  {
-    printf("Updating weather cache...\r\n");
-    sleep(1);
-  }
+  _WCH = NULL;
+  printf("Updating weather cache...\r\n");
+  sleep(1);
   return 0;
 }
 
-void wch_dispose(Weather_Cache_Handler* _ECH)
+void wch_dispose(WCH* _WCH)
 {
 
-  _ECH = NULL;
+  _WCH = NULL;
 }
 

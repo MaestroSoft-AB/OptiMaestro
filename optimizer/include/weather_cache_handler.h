@@ -2,21 +2,42 @@
 #define __WEATHER_CACHE_HANDLER_H__
 
 #include "data/weather_structs.h"
+// #include "meteo.h"
+
+#include <stdint.h>
+#include <stdbool.h>
+
+/* ======================== STRUCTS ======================== */
 
 typedef struct
 {
-  Weather   weather;
+  bool forecast;
 
-} Weather_Cache_Handler;
+} WCH_Conf;
 
-/* ============================ INTERFACE ============================ */
+typedef struct
+{
+  Weather     weather;
+  // Meteo       meteo;
 
-int wch_init(Weather_Cache_Handler* _WCH);
+  const char* cache_path;
 
-int wch_update_cache(Weather_Cache_Handler* _WCH);
+  float       latitude;
+  float       longitude;
 
-void wch_dispose(Weather_Cache_Handler* _WCH);
+} WCH; // Weather Cache Handler
 
-/* =================================================================== */
+/* ======================= INTERFACE ======================= */
+
+int wch_init(WCH* _WCH);
+
+int wch_update_cache(WCH* _WCH, WCH_Conf* _Conf);
+
+int wch_write_cache(const Weather* _Spot, const char* _cache_path);
+int wch_read_cache(Weather* _Spot, const char* _cache_path);
+
+void wch_dispose(WCH* _WCH_Ptr);
+
+/* ========================================================= */
 
 #endif

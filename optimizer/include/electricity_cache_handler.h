@@ -5,9 +5,15 @@
 #include "elprisjustnu.h"
 
 #include <stdint.h>
-#include <time.h>
 
 /* ======================== STRUCTS ======================== */
+
+typedef struct
+{
+  SpotPriceClass  price_class;
+  SpotCurrency    currency;
+
+} ECH_Conf;
 
 typedef struct
 {
@@ -16,19 +22,18 @@ typedef struct
 
   const char*         cache_path;
 
-} Electricity_Cache_Handler;
+} ECH; // Electricity Cache Handler
 
 /* ======================= INTERFACE ======================= */
 
-int ech_init(Electricity_Cache_Handler* _ECH);
+int ech_init(ECH* _ECH);
 
-int ech_update_cache(Electricity_Cache_Handler* _ECH);
+int ech_update_cache(ECH* _ECH, const ECH_Conf* _Conf);
 
-int ech_write_cache(Electricity_Spots* _Spot, const char* _cache_path);
+int ech_write_cache_json(const Electricity_Spots* _Spot, const char* _cache_path);
 int ech_read_cache(Electricity_Spots* _Spot, const char* _cache_path);
-int ech_parse_json(Electricity_Spots* _Spot, const char* _json_str);
 
-void ech_dispose(Electricity_Cache_Handler* _ECH_Ptr);
+void ech_dispose(ECH* _ECH_Ptr);
 
 /* ========================================================= */
 

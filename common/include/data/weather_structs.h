@@ -9,7 +9,6 @@
 typedef struct 
 {
   time_t          timestamp;
-  time_t          update_interval;
 
   float           temperature;
   float           precipitation;
@@ -34,6 +33,7 @@ typedef struct
 
   double          elevation;
 
+  time_t          update_interval;
   float           latitude;
   float           longitude;
 

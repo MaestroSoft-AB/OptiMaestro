@@ -35,9 +35,9 @@ int epjn_init(EPJN_Spots* _Elpris_Spot);
 
 int epjn_update(EPJN_Spots* _Elpris_Spot, 
                         SpotPriceClass _price_class, 
-                        time_t _date);
+                        const time_t _date);
 
-int epjn_parse(EPJN_Spots* _Elpris_Spot, 
+int epjn_parse(const EPJN_Spots* const _EPJN, 
                        Electricity_Spots* _Spot,
                        SpotCurrency _currency);
 
