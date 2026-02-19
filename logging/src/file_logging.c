@@ -60,7 +60,7 @@ void log_write(LogLevel level, const char* file, int line, const char* func, con
     vfprintf(out, fmt, args);
     va_end(args);
 
-    fputcc("/n", out);
+    fputc('\n', out);
     fflush(out);
 
     if (g_log_file) {
@@ -70,7 +70,7 @@ void log_write(LogLevel level, const char* file, int line, const char* func, con
         vfprintf(g_log_file, fmt, args);
         va_end(args);
 
-        fputcc("/n", g_log_file);
+        fputc('\n', g_log_file);
         fflush(g_log_file);
     }
 }
