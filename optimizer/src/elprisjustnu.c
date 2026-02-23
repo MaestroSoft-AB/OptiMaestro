@@ -2,10 +2,10 @@
 #include "data/electricity_structs.h"
 #include "maestroutils/error.h"
 #define MAESTROUTILS_WITH_CJSON 1 // get rid of stupid lsp error
+#include "maestromodules/curl.h"
 #include "maestroutils/json_utils.h"
 #include "maestroutils/time_utils.h"
-
-#include "maestromodules/curl.h"
+#include <maestromodules/http_client.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,9 +25,7 @@ int epjn_init(EPJN_Spots* _EPJN)
 }
 
 /** Call epjn API to build struct values */
-int epjn_update(EPJN_Spots* _EPJN, 
-                        SpotPriceClass _pc, 
-                        const time_t _date)
+int epjn_update(EPJN_Spots* _EPJN, SpotPriceClass _pc, const time_t _date)
 {
   if (_EPJN->prices != NULL)
     free(_EPJN->prices); // free if still allocated for some reason
@@ -41,8 +39,7 @@ int epjn_update(EPJN_Spots* _EPJN,
   int day = tm->tm_mday;
 
   char url[EPJN_URL_LEN + 1];
-  snprintf(url, EPJN_URL_LEN, EPJN_URL, 
-           year, month, day, (char)(_pc+1+48));
+  snprintf(url, EPJN_URL_LEN, EPJN_URL, year, month, day, (char)(_pc + 1 + 48));
 
   url[EPJN_URL_LEN] = '\0';
 
@@ -61,17 +58,17 @@ int epjn_update(EPJN_Spots* _EPJN,
   cJSON* Json_Root = cJSON_Parse(json);
   if (Json_Root == NULL) {
     const char* err = cJSON_GetErrorPtr();
-    if (err != NULL) 
-      fprintf(stderr, "cJSON: %s\n", err); //TODO: Logger
+    if (err != NULL)
+      fprintf(stderr, "cJSON: %s\n", err); // TODO: Logger
     free((void*)json);
     return ERR_JSON_PARSE;
   }
   free((void*)json);
-  
+
   int arr_c = cJSON_GetArraySize(Json_Root);
   _EPJN->prices = malloc(arr_c * sizeof(EPJN_Spot_Price));
   if (_EPJN->prices == NULL) {
-    perror("malloc"); //TODO: Logger
+    perror("malloc"); // TODO: Logger
     cJSON_Delete(Json_Root);
     return ERR_NO_MEMORY;
   }
@@ -81,24 +78,24 @@ int epjn_update(EPJN_Spots* _EPJN,
   for (i = 0; i < arr_c; i++) {
     cJSON* item = cJSON_GetArrayItem(Json_Root, i);
     if (!cJSON_IsObject(item)) {
-      fprintf(stderr, "cJSON: Failed to parse %d as object\r\n", i); //TODO: Logger
+      fprintf(stderr, "cJSON: Failed to parse %d as object\r\n", i); // TODO: Logger
       cJSON_Delete(Json_Root);
       return ERR_JSON_OBJ_NOT_FOUND;
     }
 
     _EPJN->prices[i].spot_sek = json_get_double(item, "SEK_per_kWh");
     _EPJN->prices[i].spot_eur = json_get_double(item, "EUR_per_kWh");
-    _EPJN->prices[i].exr      = json_get_double(item, "EXR");
+    _EPJN->prices[i].exr = json_get_double(item, "EXR");
 
     const char* time_start = json_get_string(item, "time_start");
     if (!time_start) {
-      perror("json_get_string"); //TODO: Logger
+      perror("json_get_string"); // TODO: Logger
       cJSON_Delete(Json_Root);
       return ERR_NO_MEMORY;
     }
     const char* time_end = json_get_string(item, "time_end");
     if (!time_end) {
-      perror("json_get_string"); //TODO: Logger
+      perror("json_get_string"); // TODO: Logger
       free((void*)time_start);
       cJSON_Delete(Json_Root);
       return ERR_NO_MEMORY;
@@ -124,27 +121,37 @@ const char* epjn_get_response_json(const char* _url)
   // printf("We make it here, url: %s\r\n", _url);
   // TODO: Replace with http_client
   Curl_Data C_Data;
-  if (curl_init(&C_Data) != 0)
-    return NULL;
+  http_data H_Data;
 
-  int result = curl_get_response(&C_Data, _url);
-  if (result != 0) {
-    perror("curl_get_response");
-    curl_dispose(&C_Data);
-    return NULL;
+  int res;
+  res = http_blocking_get(_url, &H_Data, 10000) != SUCCESS);
+
+  if (res != SUCCESS) {
+    LOG_ERROR("http_blocking_get failed: %d", res);
   }
 
-  char* response = malloc(C_Data.size + 1);
+  // if (curl_init(&C_Data) != 0)
+  //   return NULL;
+  //
+  // int result = curl_get_response(&C_Data, _url);
+  // if (result != 0) {
+  //   perror("curl_get_response");
+  //   curl_dispose(&C_Data);
+  //   return NULL;
+  // }
+  //
+  char* response = malloc(H_Data.size + 1);
   if (response == NULL) {
     perror("malloc");
-    curl_dispose(&C_Data);
+    curl_dispose(&H_Data);
     return NULL;
   }
 
-  memcpy(response, C_Data.addr, C_Data.size);
-  response[C_Data.size] = '\0';
-  curl_dispose(&C_Data);
+  memcpy(response, H_Data.addr, H_Data.size);
+  response[H_Data.size] = '\0';
 
+  free(H_Data.addr);
+  H_Data.size = 0;
   // printf("===== Elprisjustnu Response JSON =====\n\n%s\n\n", response);
   return response;
 }
@@ -152,8 +159,7 @@ const char* epjn_get_response_json(const char* _url)
 /** Parses EPJN struct to Spot struct
  * _currency: 0 = SEK, 1 = EUR
  * _Spot->prices will be free()'d if not NULL */
-int epjn_parse(const EPJN_Spots* const _EPJN, 
-               Electricity_Spots* _Spots,
+int epjn_parse(const EPJN_Spots* const _EPJN, Electricity_Spots* _Spots,
                const SpotCurrency _currency)
 {
   if (!_EPJN || !_Spots)
@@ -163,12 +169,12 @@ int epjn_parse(const EPJN_Spots* const _EPJN,
     free(_Spots->prices);
 
   /* Set currency */
-  if (_currency == SPOT_SEK) 
+  if (_currency == SPOT_SEK)
     _Spots->currency = SPOT_SEK;
   else if (_currency == SPOT_EUR)
     _Spots->currency = SPOT_EUR;
   else {
-    fprintf(stderr, "EPJN: Invalid currency (%i)\r\n", _currency); //TODO: Logger
+    fprintf(stderr, "EPJN: Invalid currency (%i)\r\n", _currency); // TODO: Logger
     return ERR_INVALID_ARG;
   }
 
@@ -180,7 +186,7 @@ int epjn_parse(const EPJN_Spots* const _EPJN,
   _Spots->price_count = _EPJN->price_count;
   _Spots->prices = malloc(_Spots->price_count * sizeof(Electricity_Spot_Price));
   if (!_Spots->prices) {
-    perror("malloc"); //TODO: Logger
+    perror("malloc"); // TODO: Logger
     return ERR_NO_MEMORY;
   }
 
