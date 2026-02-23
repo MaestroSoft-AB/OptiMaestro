@@ -7,6 +7,8 @@
 #include <maestromodules/tls_global_ca.h>
 #include <time.h>
 
+#define OPTIMIZER_LOG_PATH "/var/log/maestro.log"
+
 /* ---------------------------- Signals ----------------------------- */
 
 /* Flags to be activated when signal is recieved */
@@ -36,13 +38,13 @@ struct timespec req = {0, 100}; // nanosleep delay, .1 ms
 
 int main(int _argc, const char** _argv)
 {
-  signal_handlers_install(sigc, Signals);
+  log_init(OPTIMIZER_LOG_PATH);
+  LOG_INFO("%s - Started", _argv[0]);
 
   if (global_tls_ca_init() != SUCCESS) {
     LOG_ERROR("global_tls_ca_init");
     exit(1);
   }
-  log_init("/var/log/maestro.log");
 
   Optimizer Opti;
   if (optimizer_init(&Opti) != SUCCESS) {
@@ -50,15 +52,15 @@ int main(int _argc, const char** _argv)
     exit(1);
   }
 
-  LOG_INFO("Optimizer started");
+  signal_handlers_install(sigc, Signals);
   /* Process handler, handle signals */
   while (1) {
     /* TODO: Switch out printf statements for logger functions */
     if (sig_exit) {
-      printf("%s - Shutdown...\n", _argv[0]);
+      LOG_INFO("%s - Shutting down", _argv[0]);
+      // printf("%s - Shutdown...\n", _argv[0]);
       optimizer_dispose(&Opti);
       global_tls_ca_dispose();
-      // TODO: eventual cleanup of running tasks
       exit(SUCCESS);
     } else if (sig_ignore) {
       // Do absolutely nothing
@@ -66,12 +68,12 @@ int main(int _argc, const char** _argv)
       // (should be done in handler though so exact sig can be logged)
       sig_ignore = 0;
     } else if (sig_new_data) {
-      printf("%s - Get new cache and calculations...\n", _argv[0]);
+      LOG_INFO("%s - Get new cache and calculations...\n", _argv[0]);
       optimizer_run(&Opti);
       sig_new_data = 0;
     } else if (sig_update_config) {
       printf("%s - Update config...\n", _argv[0]);
-      optimizer_config_set(&Opti, OPTI_CONFIG_PATH);
+      optimizer_config_set(&Opti);
       sig_update_config = 0;
     }
 

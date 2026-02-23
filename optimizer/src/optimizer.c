@@ -2,6 +2,7 @@
 #include "data/electricity_structs.h"
 #include "electricity_cache_handler.h"
 #include "maestromodules/thread_pool.h"
+#include "maestroutils/config_handler.h"
 #include "maestroutils/error.h"
 #include "maestroutils/file_utils.h"
 
@@ -13,8 +14,7 @@
 
 /* --------------------- Internal declarations --------------------- */
 
-#define DATA_DIR "/var/lib/maestro" // TODO: Move to conf
-
+// #define DATA_DIR "/var/lib/maestro" // TODO: Move to conf
 
 void optimizer_run_ech(void* _ech_conf)
 {
@@ -71,9 +71,9 @@ int optimizer_init(Optimizer* _OC)
 #endif
 
   memset(_OC, 0, sizeof(Optimizer));
-  create_directory_if_not_exists(DATA_DIR);
+  create_directory_if_not_exists(OPTIMIZER_CONF_PATH);
 
-  res = optimizer_config_set(_OC, OPTI_CONFIG_PATH);
+  res = optimizer_config_set(_OC);
   if (res != 0) {
     perror("optimizer_config_set"); // TODO: Logger
     return res;
@@ -82,9 +82,34 @@ int optimizer_init(Optimizer* _OC)
   return SUCCESS;
 }
 
-int optimizer_config_set(Optimizer* _OC, const char* _conf_path)
+int optimizer_config_set(Optimizer* _OC)
 {
   // TODO: read from conf file, add conf parse util
+
+  struct conf {
+    char* key;
+    char* val_buf;
+  };
+
+  char conf_max_threads[4];
+  char conf_data_path[64];
+  char conf_currency[4];
+
+  const char* keys_to_get[] = { 
+    "sys.max_threads",
+    "data.path",
+    "data.spots.currency",
+  };
+
+  char* values_to_get[] = {
+    conf_max_threads, 
+    conf_data_path,
+    conf_currency,
+  };
+
+  int res = config_get_value(OPTIMIZER_CONF_PATH, keys_to_get, values_to_get, 64, 3);
+  if (res != SUCCESS)
+    return res;
 
   _OC->config.max_threads = 6;
   _OC->config.data_path = "../data";

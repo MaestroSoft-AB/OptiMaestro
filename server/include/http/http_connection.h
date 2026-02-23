@@ -8,7 +8,7 @@
  * It handles the tasks between recieving a request and send a response*/
 #include <maestromodules/scheduler.h>
 #include <maestromodules/tcp_client.h>
-#include <maestroutils/http_parser.h>
+#include <maestromodules/http_parser.h>
 
 #define TCP_MESSAGE_BUFFER_MAX_SIZE                                                                \
   128 // Size of initial tcp_read buffer without reallocating more mem

@@ -9,7 +9,8 @@
 #include <stdint.h>
 #include <pthread.h>
 
-#define OPTI_CONFIG_PATH "data/config/optimizer.conf"
+#define OPTIMIZER_CONF_PATH "/etc/maestro.conf"
+#define OPTIMIZER_LOG_PATH "/var/log/maestro.log"
 
 typedef struct
 {
@@ -36,7 +37,7 @@ typedef struct
 
 int optimizer_init(Optimizer* _OC);
 
-int optimizer_config_set(Optimizer* _OC, const char* _conf_path);
+int optimizer_config_set(Optimizer* _OC);
 
 /* Runs the optimizer with the given config, updating all data */
 int optimizer_run(Optimizer* _OC);
