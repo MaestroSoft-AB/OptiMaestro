@@ -1,10 +1,9 @@
 #include "elprisjustnu.h"
 #include "data/electricity_structs.h"
-#include "maestroutils/error.h"
 #define MAESTROUTILS_WITH_CJSON 1 // get rid of stupid lsp error
-#include "maestromodules/curl.h"
-#include "maestroutils/json_utils.h"
-#include "maestroutils/time_utils.h"
+#include <maestroutils/json_utils.h>
+#include <maestroutils/error.h>
+#include <maestroutils/time_utils.h>
 #include <maestromodules/http_client.h>
 #include <maestroutils/file_logging.h>
 
@@ -141,7 +140,6 @@ const char* epjn_get_response_json(const char* _url)
 
   free(H_Data.addr);
   H_Data.size = 0;
-  // printf("===== Elprisjustnu Response JSON =====\n\n%s\n\n", response);
   return response;
 }
 

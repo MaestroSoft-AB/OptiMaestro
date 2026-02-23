@@ -2,12 +2,12 @@
 #include "cJSON.h"
 #include "data/electricity_structs.h"
 #include "data/weather_structs.h"
-#include "maestroutils/error.h"
 #define MAESTROUTILS_WITH_CJSON 1 // get rid of stupid lsp error
-#include "maestroutils/json_utils.h"
-#include "maestroutils/time_utils.h"
-
-#include "maestromodules/curl.h"
+#include <maestroutils/json_utils.h>
+#include <maestroutils/error.h>
+#include <maestroutils/time_utils.h>
+#include <maestromodules/http_client.h>
+#include <maestroutils/file_logging.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -353,28 +353,26 @@ int meteo_parse_current(const char* _json, Weather* _Weather, char* _interval)
 
 const char* meteo_get_response_json(const char* _url)
 {
-  // TODO: Replace with http_client
-  Curl_Data C_Data;
-  if (curl_init(&C_Data) != 0)
-    return NULL;
+  http_data H_Data;
 
-  int result = curl_get_response(&C_Data, _url);
-  if (result != 0) {
-    perror("curl_get_response");
-    curl_dispose(&C_Data);
-    return NULL;
+  int res;
+  res = http_blocking_get(_url, &H_Data, 10000);
+
+  if (res != SUCCESS) {
+    LOG_ERROR("http_blocking_get failed: %d", res);
   }
 
-  char* response = malloc(C_Data.size + 1);
+  char* response = malloc(H_Data.size + 1);
   if (response == NULL) {
     perror("malloc");
-    curl_dispose(&C_Data);
     return NULL;
   }
 
-  memcpy(response, C_Data.addr, C_Data.size);
-  response[C_Data.size] = '\0';
-  curl_dispose(&C_Data);
+  memcpy(response, H_Data.addr, H_Data.size);
+  response[H_Data.size] = '\0';
+
+  free(H_Data.addr);
+  H_Data.size = 0;
 
   return response;
 }

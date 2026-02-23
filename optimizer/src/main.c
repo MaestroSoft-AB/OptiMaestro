@@ -4,6 +4,7 @@
 #include "maestroutils/signal_handler.h"
 #include "optimizer.h"
 #include <maestroutils/file_logging.h>
+#include <maestromodules/tls_global_ca.h>
 #include <time.h>
 
 /* ---------------------------- Signals ----------------------------- */
@@ -37,11 +38,15 @@ int main(int _argc, const char** _argv)
 {
   signal_handlers_install(sigc, Signals);
 
+  if (global_tls_ca_init() != SUCCESS) {
+    LOG_ERROR("global_tls_ca_init");
+    exit(1);
+  }
   log_init("/var/log/maestro.log");
 
   Optimizer Opti;
   if (optimizer_init(&Opti) != SUCCESS) {
-    perror("optimizer_init");
+    LOG_ERROR("optimizer_init");
     exit(1);
   }
 
@@ -52,6 +57,7 @@ int main(int _argc, const char** _argv)
     if (sig_exit) {
       printf("%s - Shutdown...\n", _argv[0]);
       optimizer_dispose(&Opti);
+      global_tls_ca_dispose();
       // TODO: eventual cleanup of running tasks
       exit(SUCCESS);
     } else if (sig_ignore) {
