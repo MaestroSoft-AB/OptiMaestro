@@ -52,7 +52,7 @@ maestro: $(MAESTRO_DIR)/build/lib/libmaestrocore.a
 
 $(MAESTRO_DIR)/build/lib/libmaestrocore.a: deps
 	@echo "Building MaestroCore (JSON=$(JSON))..."
-	@$(MAKE) -C $(MAESTRO_DIR) -j1 JSON=$(JSON)
+	@$(MAKE) -C $(MAESTRO_DIR) JSON=$(JSON)
 
 maestro-clean:
 	@$(MAKE) -C $(MAESTRO_DIR) clean
