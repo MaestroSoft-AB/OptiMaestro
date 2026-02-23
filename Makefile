@@ -48,7 +48,9 @@ deps:
 	@git submodule update --init --recursive
 
 # Build MaestroCore first (respects JSON=1)
-maestro: deps
+maestro: $(MAESTRO_DIR)/build/lib/libmaestrocore.a
+
+$(MAESTRO_DIR)/build/lib/libmaestrocore.a: deps
 	@echo "Building MaestroCore (JSON=$(JSON))..."
 	@$(MAKE) -C $(MAESTRO_DIR) JSON=$(JSON)
 
@@ -66,7 +68,7 @@ clean: maestro-clean
 	@echo "All modules cleaned."
 
 # Build each module (depends on MaestroCore)
-$(MODULES): maestro
+$(MODULES): $(MAESTRO_DIR)/build/lib/libmaestrocore.a
 	@echo "Building module $@..."
 	$(MAKE) -C $@ all
 
