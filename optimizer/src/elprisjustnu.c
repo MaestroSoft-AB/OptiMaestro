@@ -6,6 +6,7 @@
 #include "maestroutils/json_utils.h"
 #include "maestroutils/time_utils.h"
 #include <maestromodules/http_client.h>
+#include <maestroutils/file_logging.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -120,30 +121,18 @@ const char* epjn_get_response_json(const char* _url)
 {
   // printf("We make it here, url: %s\r\n", _url);
   // TODO: Replace with http_client
-  Curl_Data C_Data;
   http_data H_Data;
 
   int res;
-  res = http_blocking_get(_url, &H_Data, 10000) != SUCCESS);
+  res = http_blocking_get(_url, &H_Data, 10000);
 
   if (res != SUCCESS) {
     LOG_ERROR("http_blocking_get failed: %d", res);
   }
 
-  // if (curl_init(&C_Data) != 0)
-  //   return NULL;
-  //
-  // int result = curl_get_response(&C_Data, _url);
-  // if (result != 0) {
-  //   perror("curl_get_response");
-  //   curl_dispose(&C_Data);
-  //   return NULL;
-  // }
-  //
   char* response = malloc(H_Data.size + 1);
   if (response == NULL) {
     perror("malloc");
-    curl_dispose(&H_Data);
     return NULL;
   }
 
