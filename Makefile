@@ -31,6 +31,7 @@ endif
 
 .PHONY: all clean deps maestro maestro-clean \
 	$(MODULES) \
+	$(addsuffix /install,$(MODULES)) \
 	$(addsuffix /run,$(MODULES)) \
 	$(addsuffix /clean,$(MODULES)) \
 	$(addsuffix /valgrind,$(MODULES)) \
@@ -71,6 +72,12 @@ clean: maestro-clean
 $(MODULES): $(MAESTRO_DIR)/build/lib/libmaestrocore.a
 	@echo "Building module $@..."
 	$(MAKE) -C $@ all
+
+# Install target using make [module]/install
+$(addsuffix /install,$(MODULES)): maestro
+	@MODULE=$(@D); \
+	echo "Installing module $$MODULE..."; \
+	$(MAKE) -C $$MODULE install
 
 # Run target using make [module]/run
 $(addsuffix /run,$(MODULES)): maestro

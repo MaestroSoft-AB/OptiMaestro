@@ -12,7 +12,11 @@ CC := gcc
 
 BUILD_DIR := build
 USER := $(shell whoami)
-BIN_DIR		:= /home/$(USER)/.local/bin
+UID := $(shell id -u)
+GID := $(shell id -g)
+BIN_DIR	 := /home/$(USER)/.local/bin
+RUN_DIRS := /var/lib/maestro/ /etc/maestro/ 
+RUN_FILES := /var/log/maestro.log /etc/maestro/optimizer.conf
 
 # ----- Local source files -----
 SRC_DIR 			 := src
@@ -97,6 +101,15 @@ $(BUILD_DIR)/$(SRC_DIR)/%.o: $(SRC_DIR)/%.c
 	@echo "Compiling $<..."
 	@mkdir -p $(dir $@)
 	@$(CC) $(CFLAGS) -c $< -o $@
+
+install: 
+	@echo "Creating system dirs and files..."
+	@sudo mkdir -p $(RUN_DIRS)
+	@sudo touch $(RUN_FILES)
+	@sudo chown -R $(UID):$(GID) $(RUN_DIRS) $(RUN_FILES) 
+	@echo "System dirs and files created and chowned."
+	@echo "Dirs: $(RUN_DIRS)" 
+	@echo "Files: $(RUN_FILES)"
 
 run: $(BIN)
 	@echo "Running $<..."
