@@ -20,24 +20,28 @@ COMMON_SRC := $(shell find -L $(COMMON_SRC_DIR) -type f -name '*.c')
 MAESTRO_DIR ?= ../external/MaestroCore
 MAESTRO_LIB := $(MAESTRO_DIR)/build/lib/libmaestrocore.a
 CJSON_DIR 	:= ../external/cJSON # Needed this for local include
-CORE_FLAGS := -Iexternal/MaestroCore/modules/include -Iexternal/MaestroCore/utils/include -Lexternal/MaestroCore/build/lib -lmaestrocore -lpthread -lm
+CORE_FLAGS := -I$(MAESTRO_DIR)/modules/include \
+              -I$(MAESTRO_DIR)/utils/include \
+              -L$(MAESTRO_DIR)/build/lib \
+              -lmaestrocore -lpthread -lm
 MBEDTLS_LIBS := \
   $(MAESTRO_DIR)/build/anonymaestro/library/libmbedtls.a \
   $(MAESTRO_DIR)/build/anonymaestro/library/libmbedx509.a \
   $(MAESTRO_DIR)/build/anonymaestro/library/libmbedcrypto.a
 
 # Enable MaestroCore JSON (optional): make JSON=1
-JSON := 1
+JSON ?= 1
 
 # Temp dirs
 CACHE_DIR := data/cache # TODO: Change to /var/cache/maestro/optimizer
 
 # Compilation flags
 CFLAGS := -std=c99 -MMD -MP -Wall -Wextra -Wfatal-errors -g \
-	-Iinclude 																								\
-	-I$(MAESTRO_DIR)/modules/include 													\
-	-I$(MAESTRO_DIR)/utils/include														\
-	-I../common/include																				\
+	-Iinclude \
+	-I$(MAESTRO_DIR)/modules/include \
+	-I$(MAESTRO_DIR)/utils/include \
+	-I$(MAESTRO_DIR)/external/anonymaestro/include \
+	-I../common/include \
 	$(CORE_FLAGS)
 
 ifeq ($(JSON),1)
