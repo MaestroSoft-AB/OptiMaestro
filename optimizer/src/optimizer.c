@@ -86,7 +86,7 @@ int optimizer_config_set(Optimizer* _OC, const char* _conf_path)
 {
   // TODO: read from conf file, add conf parse util
 
-  _OC->config.max_threads = 2;
+  _OC->config.max_threads = 6;
   _OC->config.data_path = "../data";
   _OC->config.currency = SPOT_SEK;
 

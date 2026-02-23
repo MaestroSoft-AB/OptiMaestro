@@ -188,6 +188,7 @@ int wch_write_cache_json(const Weather* _Weather, const char* _cache_path)
 
     cJSON_AddNumberToObject(Json_Object, "temperature", Vals.temperature);
     cJSON_AddNumberToObject(Json_Object, "windspeed", Vals.windspeed);
+    cJSON_AddNumberToObject(Json_Object, "winddirection", Vals.winddirection_azimuth);
     cJSON_AddNumberToObject(Json_Object, "precipitation", Vals.precipitation);
     cJSON_AddNumberToObject(Json_Object, "radiation_direct", Vals.radiation_direct);
     cJSON_AddNumberToObject(Json_Object, "radiation_direct_n", Vals.radiation_direct_n);
