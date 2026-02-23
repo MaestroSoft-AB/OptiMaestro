@@ -2,6 +2,11 @@
 # ============== Optimizer Makefile ===============
 # =================================================
 
+# Dirs/files to install and take proper ownership of:
+# /var/lib/maestro/ 
+# /var/log/maestro.log
+# /etc/maestro/optimizer.conf
+
 # Compiler
 CC := gcc
 
