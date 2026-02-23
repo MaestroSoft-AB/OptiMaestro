@@ -20,6 +20,11 @@ COMMON_SRC := $(shell find -L $(COMMON_SRC_DIR) -type f -name '*.c')
 MAESTRO_DIR ?= ../external/MaestroCore
 MAESTRO_LIB := $(MAESTRO_DIR)/build/lib/libmaestrocore.a
 CJSON_DIR 	:= ../external/cJSON # Needed this for local include
+CORE_FLAGS := -Iexternal/MaestroCore/modules/include -Iexternal/MaestroCore/utils/include -Lexternal/MaestroCore/build/lib -lmaestrocore -lpthread -lm
+MBEDTLS_LIBS := \
+  $(MAESTRO_DIR)/build/anonymaestro/library/libmbedtls.a \
+  $(MAESTRO_DIR)/build/anonymaestro/library/libmbedx509.a \
+  $(MAESTRO_DIR)/build/anonymaestro/library/libmbedcrypto.a
 
 # Enable MaestroCore JSON (optional): make JSON=1
 JSON := 1
@@ -32,7 +37,8 @@ CFLAGS := -std=c99 -MMD -MP -Wall -Wextra -Wfatal-errors -g \
 	-Iinclude 																								\
 	-I$(MAESTRO_DIR)/modules/include 													\
 	-I$(MAESTRO_DIR)/utils/include														\
-	-I../common/include
+	-I../common/include																				\
+	$(CORE_FLAGS)
 
 ifeq ($(JSON),1)
 	CFLAGS += -DMAESTROUTILS_WITH_CJSON -I$(CJSON_DIR)
@@ -72,7 +78,7 @@ $(BIN): $(OBJ) $(MAESTRO_LIB)
 	@echo "Creating bin dir: $(BIN_DIR)..."
 	@mkdir -p $(BIN_DIR)
 	@echo "Linking..."
-	@$(CC) $(LDFLAGS) $(OBJ) $(MAESTRO_LIB) -o $@ $(LIBS)
+	@$(CC) $(LDFLAGS) $(OBJ) $(MAESTRO_LIB) $(MBEDTLS_LIBS) -o $@ $(LIBS) -lpthread -lm
 
 # asan: clean
 # 	@echo "Building ASan binary..."
