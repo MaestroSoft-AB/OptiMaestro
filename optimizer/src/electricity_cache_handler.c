@@ -14,7 +14,7 @@
 
 /* --------------------------- Internal --------------------------- */
 
-#define ECH_BASE_CACHE_PATH "./data/spots" // TODO: Move to conf
+#define ECH_BASE_CACHE_PATH "/var/lib/maestro/spots" // TODO: Move to conf
 
 const char* ech_get_cache_filepath(const char* _base_path,
                                    time_t _start,
@@ -141,7 +141,7 @@ const char* ech_get_cache_filepath(const char* _base_path, const time_t _start,
   }
 
   /* Build path name */
-  snprintf(path_buf, sizeof(path_buf), 
+  size_t path_len = snprintf(path_buf, sizeof(path_buf), 
           "%s/SE%01i-%s_%s.json",
           _base_path,
           _price_class + 1,
@@ -150,7 +150,6 @@ const char* ech_get_cache_filepath(const char* _base_path, const time_t _start,
 
   free((void*)start_str);
 
-  size_t path_len = strlen(path_buf);
   char* path = malloc(path_len + 1);
   if (!path)
     return NULL;
@@ -328,6 +327,8 @@ void ech_dispose(ECH* _ECH)
 
   if (_ECH->spot.prices != NULL)
     free(_ECH->spot.prices);
+
+  memset(_ECH, 0, sizeof(ECH));
 
   _ECH = NULL;
 }

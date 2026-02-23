@@ -2,11 +2,12 @@
 # ============== Optimizer Makefile ===============
 # =================================================
 
-# Compiler 
+# Compiler
 CC := gcc
 
 BUILD_DIR := build
-BIN_DIR		:= ../bin
+USER := $(shell whoami)
+BIN_DIR		:= /home/$(USER)/.local/bin
 
 # ----- Local source files -----
 SRC_DIR 			 := src
@@ -24,7 +25,7 @@ CJSON_DIR 	:= ../external/cJSON # Needed this for local include
 JSON := 1
 
 # Temp dirs
-CACHE_DIR := data/cache
+CACHE_DIR := data/cache # TODO: Change to /var/cache/maestro/optimizer
 
 # Compilation flags
 CFLAGS := -std=c99 -MMD -MP -Wall -Wextra -Wfatal-errors -g \
@@ -68,8 +69,9 @@ $(MAESTRO_LIB):
 	@$(MAKE) -C $(MAESTRO_DIR) JSON=$(JSON)
 
 $(BIN): $(OBJ) $(MAESTRO_LIB)
-	@echo "Linking..."
+	@echo "Creating bin dir: $(BIN_DIR)..."
 	@mkdir -p $(BIN_DIR)
+	@echo "Linking..."
 	@$(CC) $(LDFLAGS) $(OBJ) $(MAESTRO_LIB) -o $@ $(LIBS)
 
 # asan: clean

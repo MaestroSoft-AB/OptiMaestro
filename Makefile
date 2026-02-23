@@ -2,6 +2,11 @@
 # 🌤 WeatherMaestro Main Makefile
 # ======================================
 
+#TODO: Add install option to create folders etc
+# /var/lib/maestro for instance with correct ownership
+# rootless bins in: /home/$(shell whoami)/.local/bin/maestro
+# (ensure path, could be configurable)
+
 MODULES := server client client_cpp optimizer
 
 # --- MaestroCore submodule ---

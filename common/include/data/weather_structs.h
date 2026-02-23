@@ -14,10 +14,16 @@ typedef struct
   float           precipitation;
   float           windspeed;
 
-  const char      winddirection_cardinal[4];
+  float           radiation_direct_n; // DNI - direct normalized
+  float           radiation_tilted; // GTI (needs tilt+azimuth params)
+  float           radiation_direct;
+  float           radiation_diffuse; // DHI
+  float           radiation_shortwave; // GHI (DNI × cos(zenith angle) + DHI)
+
+  int             sun_duration; // during interval
 
   unsigned short  winddirection_azimuth;
-  uint8_t         wmo_code;
+  // uint8_t         wmo_code;
 
 } Weather_Values;
 
@@ -26,18 +32,23 @@ typedef struct
   Weather_Values* values;
 
   const char*     cache_path;
+
   const char*     temperature_unit;
   const char*     windspeed_unit;
   const char*     precipitation_unit;
   const char*     winddirection_unit;
+  const char*     radiation_unit; // should be W/m2
 
-  double          elevation;
-
-  time_t          update_interval;
   float           latitude;
   float           longitude;
 
   unsigned int    count;
+  unsigned int    update_interval; // minutes between values
+  
+  // unsigned short  panel_azimuth; 
+  // unsigned short  panel_tilt;
+
+  char            sun_duration_unit;
 
 } Weather;
 

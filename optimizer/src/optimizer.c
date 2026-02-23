@@ -13,7 +13,7 @@
 
 /* --------------------- Internal declarations --------------------- */
 
-#define DATA_DIR "./data" // TODO: Move to conf
+#define DATA_DIR "/var/lib/maestro" // TODO: Move to conf
 
 
 void optimizer_run_ech(void* _ech_conf)
@@ -24,13 +24,13 @@ void optimizer_run_ech(void* _ech_conf)
 
   res = ech_init(&E);
   if (res != 0) {
-    perror("ech_init");
+    perror("ech_init"); // TODO: Logger
     return;
   }
 
   res = ech_update_cache(&E, Conf);
   if (res != 0) {
-    perror("ech_update_cache");
+    perror("ech_update_cache"); // TODO: Logger
     ech_dispose(&E);
     return;
   }
@@ -46,13 +46,13 @@ void optimizer_run_wch(void* _wch_conf)
 
   res = wch_init(&W);
   if (res != 0) {
-    perror("wch_init");
+    perror("wch_init"); // TODO: Logger
     return;
   }
 
   res = wch_update_cache(&W, Conf);
   if (res != 0) {
-    perror("wch_update_cache");
+    perror("wch_update_cache"); // TODO: Logger
     wch_dispose(&W);
     return;
   }
@@ -75,7 +75,7 @@ int optimizer_init(Optimizer* _OC)
 
   res = optimizer_config_set(_OC, OPTI_CONFIG_PATH);
   if (res != 0) {
-    perror("optimizer_config_set");
+    perror("optimizer_config_set"); // TODO: Logger
     return res;
   }
 
@@ -86,7 +86,7 @@ int optimizer_config_set(Optimizer* _OC, const char* _conf_path)
 {
   // TODO: read from conf file, add conf parse util
 
-  _OC->config.max_threads = 4;
+  _OC->config.max_threads = 2;
   _OC->config.data_path = "../data";
   _OC->config.currency = SPOT_SEK;
 
@@ -106,19 +106,21 @@ int optimizer_run(Optimizer* _OC)
   }
   WCH_Conf WCH_Config[2] = {0}; // One per current+forecast
   WCH_Config[0].forecast = true; WCH_Config[1].forecast = false;
+  WCH_Config[0].latitude = 59.33263; WCH_Config[0].longitude = 18.06453;
+  WCH_Config[1].latitude = 59.33263; WCH_Config[1].longitude = 18.06453;
 
   /* SINGLE THREADED - one by one */
-  if (_OC->config.max_threads < 2) {
+  if (_OC->config.max_threads < 3) {
     ECH E;
     res = ech_init(&E);
     if (res != 0) {
-      perror("wch_init");
+      perror("wch_init"); // TODO: Logger
       return res;
     }
     WCH W;
     res = wch_init(&W);
     if (res != 0) {
-      perror("wch_init");
+      perror("wch_init"); // TODO: Logger
       ech_dispose(&E);
       return res;
     }
@@ -126,54 +128,47 @@ int optimizer_run(Optimizer* _OC)
     for (i = 0; i < 4; i++) { 
       res = ech_update_cache(&E, &ECH_Config[i]);
       if (res != 0) {
-        perror("ech_update_cache");
+        perror("ech_update_cache"); // TODO: Logger
         ech_dispose(&E);
-        wch_dispose(&W);
         return res;
       }
+      ech_dispose(&E);
     }
     ech_dispose(&E);
 
     for (i = 0; i < 2; i++) { 
       res = wch_update_cache(&W, &WCH_Config[i]);
       if (res != 0) {
-        perror("wch_update_cache");
-        ech_dispose(&E);
+        perror("wch_update_cache"); // TODO: Logger
         wch_dispose(&W);
         return res;
       }
+      wch_dispose(&W);
     }
     wch_dispose(&W);
 
   }
   /* MULTI THREADED - using thread_pool.h󰩧 */
   else {
-
     _OC->thread_pool = tp_init(_OC->config.max_threads);
     
     if (!_OC->thread_pool) {
-      perror("tp_init");
+      perror("tp_init"); // TODO: Logger
       return ERR_FATAL;
     }
 
     for (i = 0; i < 4; i++) { 
       TP_Task Task = { optimizer_run_ech, &ECH_Config[i], NULL, NULL };
       res = tp_task_add(_OC->thread_pool, &Task);
-      if (res != 0) {
-        perror("tp_task_add");
-        tp_dispose(_OC->thread_pool);
-        return res;
-      }
+      if (res != 0) 
+        perror("tp_task_add"); // TODO: Logger
     }
 
     for (i = 0; i < 2; i++) { 
       TP_Task Task = { optimizer_run_wch, &WCH_Config[i], NULL, NULL };
       res = tp_task_add(_OC->thread_pool, &Task);
-      if (res != 0) {
-        perror("tp_task_add");
-        tp_dispose(_OC->thread_pool);
-        return res;
-      }
+      if (res != 0) 
+        perror("tp_task_add"); // TODO: Logger
     }
 
     tp_wait(_OC->thread_pool);
