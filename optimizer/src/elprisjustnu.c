@@ -118,8 +118,6 @@ int epjn_update(EPJN_Spots* _EPJN, SpotPriceClass _pc, const time_t _date)
 
 const char* epjn_get_response_json(const char* _url)
 {
-  // printf("We make it here, url: %s\r\n", _url);
-  // TODO: Replace with http_client
   http_data H_Data;
 
   int res;
@@ -140,6 +138,7 @@ const char* epjn_get_response_json(const char* _url)
 
   free(H_Data.addr);
   H_Data.size = 0;
+
   return response;
 }
 

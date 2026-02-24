@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include <pthread.h>
 
-#define OPTIMIZER_CONF_PATH "/etc/maestro.conf"
+#define OPTIMIZER_CONF_PATH "/etc/maestro/optimizer.conf"
 #define OPTIMIZER_LOG_PATH "/var/log/maestro.log"
 
 typedef struct

@@ -16,7 +16,9 @@ UID := $(shell id -u)
 GID := $(shell id -g)
 BIN_DIR	 := /home/$(USER)/.local/bin
 RUN_DIRS := /var/lib/maestro/ /etc/maestro/ 
-RUN_FILES := /var/log/maestro.log /etc/maestro/optimizer.conf
+RUN_FILES := /var/log/maestro.log
+CONF_FILE := /etc/maestro/optimizer.conf
+INSTALL_SCRIPT := ./scripts/install.sh
 
 # ----- Local source files -----
 SRC_DIR 			 := src
@@ -104,6 +106,8 @@ $(BUILD_DIR)/$(SRC_DIR)/%.o: $(SRC_DIR)/%.c
 
 install: 
 	@echo "Creating system dirs and files..."
+	@chmod +x $(INSTALL_SCRIPT)
+	@sudo sh $(INSTALL_SCRIPT)
 	@sudo mkdir -p $(RUN_DIRS)
 	@sudo touch $(RUN_FILES)
 	@sudo chown -R $(UID):$(GID) $(RUN_DIRS) $(RUN_FILES) 

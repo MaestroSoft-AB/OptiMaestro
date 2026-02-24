@@ -85,34 +85,30 @@ int optimizer_init(Optimizer* _OC)
 int optimizer_config_set(Optimizer* _OC)
 {
   // TODO: read from conf file, add conf parse util
+/*
+  char conf_max_threads[4] = {0};
+  char conf_currency[4] = {0};
 
-  struct conf {
-    char* key;
-    char* val_buf;
-  };
-
-  char conf_max_threads[4];
-  char conf_data_path[64];
-  char conf_currency[4];
-
-  const char* keys_to_get[] = { 
+  const char* keys[] = { 
     "sys.max_threads",
-    "data.path",
     "data.spots.currency",
   };
 
-  char* values_to_get[] = {
+  char* values[] = {
     conf_max_threads, 
-    conf_data_path,
     conf_currency,
   };
 
-  int res = config_get_value(OPTIMIZER_CONF_PATH, keys_to_get, values_to_get, 64, 3);
+  int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 64, 3);
+
+  for (int i = 0; i < 2; i++)
+    printf("key: %s, value: %s\n", keys[i], values[i]);
+
   if (res != SUCCESS)
     return res;
+    */
 
   _OC->config.max_threads = 6;
-  _OC->config.data_path = "../data";
   _OC->config.currency = SPOT_SEK;
 
   return SUCCESS;
