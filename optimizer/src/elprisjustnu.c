@@ -43,14 +43,12 @@ int epjn_update(EPJN_Spots* _EPJN, SpotPriceClass _pc, const time_t _date)
 
   url[EPJN_URL_LEN] = '\0';
 
-  printf("epjn url: %s\r\n", url);
-
   // TODO: Add cache funcs, base_path in config, use if available instead of request
 
   /* Call API for json */
   const char* json = epjn_get_response_json(url);
   if (json == NULL) {
-    perror("epjn_get_response_json"); // TODO: Logger
+    LOG_ERROR("epjn_get_response_json"); // TODO: Logger
     return ERR_INTERNAL;
   }
 
@@ -59,7 +57,7 @@ int epjn_update(EPJN_Spots* _EPJN, SpotPriceClass _pc, const time_t _date)
   if (Json_Root == NULL) {
     const char* err = cJSON_GetErrorPtr();
     if (err != NULL)
-      fprintf(stderr, "cJSON: %s\n", err); // TODO: Logger
+      LOG_ERROR("cJSON: %s\n", err); // TODO: Logger
     free((void*)json);
     return ERR_JSON_PARSE;
   }
@@ -68,7 +66,7 @@ int epjn_update(EPJN_Spots* _EPJN, SpotPriceClass _pc, const time_t _date)
   int arr_c = cJSON_GetArraySize(Json_Root);
   _EPJN->prices = malloc(arr_c * sizeof(EPJN_Spot_Price));
   if (_EPJN->prices == NULL) {
-    perror("malloc"); // TODO: Logger
+    LOG_ERROR("malloc"); // TODO: Logger
     cJSON_Delete(Json_Root);
     return ERR_NO_MEMORY;
   }
@@ -78,7 +76,7 @@ int epjn_update(EPJN_Spots* _EPJN, SpotPriceClass _pc, const time_t _date)
   for (i = 0; i < arr_c; i++) {
     cJSON* item = cJSON_GetArrayItem(Json_Root, i);
     if (!cJSON_IsObject(item)) {
-      fprintf(stderr, "cJSON: Failed to parse %d as object\r\n", i); // TODO: Logger
+      LOG_ERROR("cJSON: Failed to parse %d as object\r\n", i); // TODO: Logger
       cJSON_Delete(Json_Root);
       return ERR_JSON_OBJ_NOT_FOUND;
     }
@@ -89,13 +87,13 @@ int epjn_update(EPJN_Spots* _EPJN, SpotPriceClass _pc, const time_t _date)
 
     const char* time_start = json_get_string(item, "time_start");
     if (!time_start) {
-      perror("json_get_string"); // TODO: Logger
+      LOG_ERROR("json_get_string"); // TODO: Logger
       cJSON_Delete(Json_Root);
       return ERR_NO_MEMORY;
     }
     const char* time_end = json_get_string(item, "time_end");
     if (!time_end) {
-      perror("json_get_string"); // TODO: Logger
+      LOG_ERROR("json_get_string"); // TODO: Logger
       free((void*)time_start);
       cJSON_Delete(Json_Root);
       return ERR_NO_MEMORY;
@@ -105,7 +103,7 @@ int epjn_update(EPJN_Spots* _EPJN, SpotPriceClass _pc, const time_t _date)
     _EPJN->prices[i].time_end = parse_iso_full_datetime_string_to_epoch(time_end);
 
     if (_EPJN->prices[i].time_start == -1 || _EPJN->prices[i].time_end == -1) {
-      fprintf(stderr, "Failed to parse timestamps in epjn (%i)\r\n", i);
+      LOG_ERROR("Failed to parse timestamps in epjn (%i)\r\n", i);
       cJSON_Delete(Json_Root);
       return ERR_JSON_PARSE;
     }
@@ -129,7 +127,7 @@ const char* epjn_get_response_json(const char* _url)
 
   char* response = malloc(H_Data.size + 1);
   if (response == NULL) {
-    perror("malloc");
+    LOG_ERROR("malloc");
     return NULL;
   }
 
@@ -160,7 +158,7 @@ int epjn_parse(const EPJN_Spots* const _EPJN, Electricity_Spots* _Spots,
   else if (_currency == SPOT_EUR)
     _Spots->currency = SPOT_EUR;
   else {
-    fprintf(stderr, "EPJN: Invalid currency (%i)\r\n", _currency); // TODO: Logger
+    LOG_ERROR("EPJN: Invalid currency (%i)\r\n", _currency); // TODO: Logger
     return ERR_INVALID_ARG;
   }
 
@@ -172,7 +170,7 @@ int epjn_parse(const EPJN_Spots* const _EPJN, Electricity_Spots* _Spots,
   _Spots->price_count = _EPJN->price_count;
   _Spots->prices = malloc(_Spots->price_count * sizeof(Electricity_Spot_Price));
   if (!_Spots->prices) {
-    perror("malloc"); // TODO: Logger
+    LOG_ERROR("malloc"); // TODO: Logger
     return ERR_NO_MEMORY;
   }
 

@@ -6,6 +6,7 @@
 #include "maestroutils/time_utils.h"
 #define MAESTROUTILS_WITH_CJSON 1 // get rid of stupid lsp error
 #include "maestroutils/json_utils.h"
+#include "maestroutils/file_logging.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,8 +14,6 @@
 #include <unistd.h>
 
 /* --------------------------- Internal --------------------------- */
-
-#define WCH_BASE_CACHE_PATH "/var/lib/maestro/weather" // TODO: Move to conf
 
 const char* wch_get_cache_filepath(const char* _base_path,
                                    time_t      _start_date,
@@ -28,40 +27,64 @@ int wch_write_cache_json(const Weather* _Weather, const char* _cache_path);
 
 /* ---------------------------------------------------------------- */
 
-int wch_init(WCH* _WCH)
+int wch_init(WCH* _WCH, const WCH_Conf* _Conf)
 {
   memset(_WCH, 0, sizeof(WCH));
   memset(&_WCH->weather, 0, sizeof(Weather));
 
-  create_directory_if_not_exists(WCH_BASE_CACHE_PATH);
+  printf("WCH data dir: %s\n", _Conf->data_dir);
+
+  if (!_Conf->data_dir) {
+    create_directory_if_not_exists(WCH_BASE_CACHE_PATH_FALLBACK);
+    /* size_t path_len = strlen(WCH_BASE_CACHE_PATH_FALLBACK);
+    _WCH->conf.data_dir = malloc(path_len + 1);
+    if (!_WCH->conf.data_dir) {
+      LOG_ERROR("malloc");
+      return ERR_NO_MEMORY;
+    }
+    memcpy(_WCH->conf.data_dir) */
+
+  }
+  else {
+    create_directory_if_not_exists(_Conf->data_dir);
+    _WCH->conf.data_dir = _Conf->data_dir;
+  }
+
+  _WCH->conf.latitude = _Conf->latitude;
+  _WCH->conf.longitude = _Conf->longitude;
 
   return SUCCESS;
 }
 
-int wch_update_cache(WCH* _WCH, const WCH_Conf* _Conf)
+int wch_update_cache(WCH* _WCH)
 {
-  printf("Updating weather cache...\r\n");
+  LOG_INFO("Updating weather cache...\r\n");
 
-  /* Set conf */
-  _WCH->weather.latitude = _Conf->latitude; 
-  _WCH->weather.longitude = _Conf->longitude; 
+  /* Set conf weather vars */
+  _WCH->weather.latitude  = _WCH->conf.latitude; 
+  _WCH->weather.longitude = _WCH->conf.longitude; 
 
   /* Free previous path allocation if exists */
-  if (_WCH->cache_path != NULL)
-    free((void*)_WCH->cache_path);
+  if (_WCH->data_path != NULL)
+    free((void*)_WCH->data_path);
 
   /* Define cache path */
   time_t today = epoch_now_day();
   // time_t tmrw  = today + 86400;
 
-  _WCH->cache_path = wch_get_cache_filepath(WCH_BASE_CACHE_PATH, today, _Conf->forecast);
+  if (!_WCH->conf.data_dir)  // fallback data dir
+    _WCH->data_path = wch_get_cache_filepath(WCH_BASE_CACHE_PATH_FALLBACK, 
+        today, _WCH->conf.forecast);
+  else
+    _WCH->data_path = wch_get_cache_filepath(_WCH->conf.data_dir, 
+        today, _WCH->conf.forecast);
   
-  if (!_WCH->cache_path) {
+  if (!_WCH->data_path) {
     perror("wch_set_cache_filepath");
     return ERR_FATAL;
   }
 
-  printf("WCH cache_path: %s\r\n", _WCH->cache_path);
+  printf("WCH data_path: %s\r\n", _WCH->data_path);
 
   /* TODO: Caching+validating - Ideally not just based on cache name 
    * since we don't want files that overlap in data 
@@ -70,14 +93,16 @@ int wch_update_cache(WCH* _WCH, const WCH_Conf* _Conf)
   /* Get weather data from external API */
   /* TODO: better interval handling and ability to get specific date range 
    * (so we can create a historical archive) */
-  if (_Conf->forecast) {
-    if (meteo_get_15_minutely(&_WCH->weather, _Conf->latitude, _Conf->longitude) != 0) {
+  if (_WCH->conf.forecast) {
+    if (meteo_get_15_minutely(&_WCH->weather, 
+          _WCH->conf.latitude, 
+          _WCH->conf.longitude) != 0) {
       perror("meteo_get_15_minutes");
       return ERR_INTERNAL;
     }
   }
   else {
-    if (meteo_get_current(&_WCH->weather, _Conf->latitude, _Conf->longitude) != 0) {
+    if (meteo_get_current(&_WCH->weather, _WCH->conf.latitude, _WCH->conf.longitude) != 0) {
       perror("meteo_get_15_current");
       return ERR_INTERNAL;
     }
@@ -87,7 +112,7 @@ int wch_update_cache(WCH* _WCH, const WCH_Conf* _Conf)
   printf("time=%lu   radiation_DHI=%f%s   temp=%f %s\r\n", _WCH->weather.values[0].timestamp, _WCH->weather.values[0].radiation_diffuse, _WCH->weather.radiation_unit, _WCH->weather.values[0].temperature, _WCH->weather.temperature_unit);
 
   /* Write parsed weather to cache */
-  if (wch_write_cache_json(&_WCH->weather, _WCH->cache_path) != 0) {
+  if (wch_write_cache_json(&_WCH->weather, _WCH->data_path) != 0) {
     perror("wch_write_cache_json");
     return ERR_INTERNAL;
   }
@@ -155,7 +180,7 @@ int wch_write_cache_json(const Weather* _Weather, const char* _cache_path)
   if (Json_Root == NULL) {
     const char* err = cJSON_GetErrorPtr();
     if (err != NULL) 
-      fprintf(stderr, "cJSON: %s\n", err); //TODO: Logger
+      LOG_ERROR("cJSON: %s\n", err); //TODO: Logger
     return ERR_JSON_PARSE;
   }
 
@@ -202,7 +227,7 @@ int wch_write_cache_json(const Weather* _Weather, const char* _cache_path)
 
   char* json_str = cJSON_Print(Json_Root);
 
-  printf("\r\n--- Writing to %s ---\r\n%s\r\n", _cache_path, json_str);
+  LOG_INFO("\r\n--- WCH writing to %s ---\r\n", _cache_path);
 
   if (write_string_to_file(json_str, _cache_path) != 0)
     fprintf(stderr, "Failed to write string \"%p\" to cache \"%p\"\n", json_str, _cache_path); 
@@ -216,8 +241,11 @@ int wch_write_cache_json(const Weather* _Weather, const char* _cache_path)
 
 void wch_dispose(WCH* _WCH)
 {
-  if (_WCH->cache_path != NULL)
-    free((void*)_WCH->cache_path);
+  if (_WCH->data_path != NULL)
+    free((void*)_WCH->data_path);
+
+  if (_WCH->conf.data_dir != NULL)
+    free((void*)_WCH->conf.data_dir);
 
   if (_WCH->weather.temperature_unit    != NULL)
     free((void*)_WCH->weather.temperature_unit);

@@ -45,9 +45,6 @@ int meteo_get_hourly(Weather*  _Weather,
   if (_Weather->values != NULL)
     free(_Weather->values); // free if still allocated for some reason
 
-  /* Define URL */
-  // char url_buf[512];
-
 
   return SUCCESS;
 }
@@ -70,7 +67,7 @@ int meteo_get_15_minutely(Weather* _Weather,
 
   char* url = malloc((url_len + 1) * sizeof(char));
   if (url == NULL) {
-    perror("malloc");
+    LOG_ERROR("malloc");
     return ERR_NO_MEMORY;
   }
 
@@ -81,7 +78,7 @@ int meteo_get_15_minutely(Weather* _Weather,
   const char* response_json = meteo_get_response_json(url);
   if (response_json == NULL) {
     free(url);
-    perror("meteo_get_response_json");
+    LOG_ERROR("meteo_get_response_json");
     return ERR_INTERNAL;
   }
   free(url);
@@ -89,7 +86,7 @@ int meteo_get_15_minutely(Weather* _Weather,
   /* Parse json to weather struct */
   if (meteo_parse_forecast(response_json, _Weather, interval) != 0) {
     free((void*)response_json);
-    perror("meteo_parse_forecast");
+    LOG_ERROR("meteo_parse_forecast");
     return ERR_INTERNAL;
   }
   free((void*)response_json);
@@ -116,7 +113,7 @@ int meteo_get_current(Weather* _Weather,
 
   char* url = malloc((url_len + 1) * sizeof(char));
   if (url == NULL) {
-    perror("malloc");
+    LOG_ERROR("malloc");
     return ERR_NO_MEMORY;
   }
 
@@ -127,17 +124,15 @@ int meteo_get_current(Weather* _Weather,
   const char* response_json = meteo_get_response_json(url);
   if (response_json == NULL) {
     free(url);
-    perror("meteo_get_response_json");
+    LOG_ERROR("meteo_get_response_json");
     return ERR_INTERNAL;
   }
   free(url);
 
-  printf("response: %s\n", response_json);
-
   /* Parse json to weather struct */
   if (meteo_parse_current(response_json, _Weather, interval) != 0) {
     free((void*)response_json);
-    perror("meteo_parse_forecast");
+    LOG_ERROR("meteo_parse_forecast");
     return ERR_INTERNAL;
   }
   free((void*)response_json);
@@ -161,7 +156,7 @@ int meteo_parse_forecast(const char* _json, Weather* _Weather, char* _interval)
   if (Json_Root == NULL) {
     const char* err = cJSON_GetErrorPtr();
     if (err != NULL) 
-      fprintf(stderr, "cJSON: %s\n", err); //TODO: Logger
+      LOG_ERROR("cJSON: %s\n", err); //TODO: Logger
     return ERR_JSON_PARSE;
   }
   _Weather->latitude = json_get_double(Json_Root, "latitude");
@@ -170,14 +165,14 @@ int meteo_parse_forecast(const char* _json, Weather* _Weather, char* _interval)
   /* The two main bodies in meteo response */
   cJSON* Forecast_Values = cJSON_GetObjectItemCaseSensitive(Json_Root, _interval);
   if (Forecast_Values == NULL) {
-    perror("cJSON_GetObjectItemCaseSensitive"); //TODO: Logger
+    LOG_ERROR("cJSON_GetObjectItemCaseSensitive"); //TODO: Logger
     cJSON_Delete(Json_Root);
     return ERR_JSON_OBJ_NOT_FOUND;
   }
   const char* units_name = strcat(_interval, "_units");
   cJSON* Forecast_Units = cJSON_GetObjectItemCaseSensitive(Json_Root, units_name);
   if (Forecast_Units == NULL) {
-    perror("cJSON_GetObjectItemCaseSensitive"); //TODO: Logger
+    LOG_ERROR("cJSON_GetObjectItemCaseSensitive"); //TODO: Logger
     cJSON_Delete(Json_Root);
     return ERR_JSON_OBJ_NOT_FOUND;
   }
@@ -197,7 +192,7 @@ int meteo_parse_forecast(const char* _json, Weather* _Weather, char* _interval)
   /* Allocate values for as many array items */
   Weather_Values* Vals = calloc(1, (arr_c * sizeof(Weather_Values)));
   if (!Vals) {
-    perror("calloc"); //TODO: Logger
+    LOG_ERROR("calloc"); //TODO: Logger
     cJSON_Delete(Json_Root);
     return ERR_NO_MEMORY;
   }
@@ -285,25 +280,23 @@ int meteo_parse_current(const char* _json, Weather* _Weather, char* _interval)
   if (Json_Root == NULL) {
     const char* err = cJSON_GetErrorPtr();
     if (err != NULL) 
-      fprintf(stderr, "cJSON: %s\n", err); //TODO: Logger
+      LOG_ERROR("cJSON: %s\n", err); //TODO: Logger
     return ERR_JSON_PARSE;
   }
   _Weather->latitude = json_get_double(Json_Root, "latitude");
   _Weather->longitude = json_get_double(Json_Root, "longitude");
 
-  printf("meteo json object: %s\r\n", _interval);
   /* The two main bodies in meteo response */
   cJSON* Current_Values = cJSON_GetObjectItemCaseSensitive(Json_Root, _interval);
   if (Current_Values == NULL) {
-    perror("cJSON_GetObjectItemCaseSensitive"); //TODO: Logger
+    LOG_ERROR("cJSON_GetObjectItemCaseSensitive"); //TODO: Logger
     cJSON_Delete(Json_Root);
     return ERR_JSON_OBJ_NOT_FOUND;
   }
   const char* units_name = strcat(_interval, "_units");
-  printf("meteo units json object: %s\r\n", units_name);
   cJSON* Current_Units = cJSON_GetObjectItemCaseSensitive(Json_Root, units_name);
   if (Current_Units == NULL) {
-    perror("cJSON_GetObjectItemCaseSensitive"); //TODO: Logger
+    LOG_ERROR("cJSON_GetObjectItemCaseSensitive"); //TODO: Logger
     cJSON_Delete(Json_Root);
     return ERR_JSON_OBJ_NOT_FOUND;
   }
@@ -311,7 +304,7 @@ int meteo_parse_current(const char* _json, Weather* _Weather, char* _interval)
   /* Allocate values for as many array items */
   Weather_Values* Vals = calloc(1, sizeof(Weather_Values));
   if (!Vals) {
-    perror("calloc"); //TODO: Logger
+    LOG_ERROR("calloc"); //TODO: Logger
     cJSON_Delete(Json_Root);
     return ERR_NO_MEMORY;
   }
@@ -364,7 +357,7 @@ const char* meteo_get_response_json(const char* _url)
 
   char* response = malloc(H_Data.size + 1);
   if (response == NULL) {
-    perror("malloc");
+    LOG_ERROR("malloc");
     return NULL;
   }
 

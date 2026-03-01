@@ -20,12 +20,13 @@ log.path=/var/log/maestro.log
 
 ################## Data ##################
 data.dir=/var/lib/maestro/
+data.spots.dir=/var/lib/maestro/spots/
+data.weather.dir=/var/lib/maestro/weather/
+
 data.type=json
 
 data.spots.currency=SEK
-data.spots.dir=/var/lib/maestro/spots/
 
-data.weather.dir=/var/lib/maestro/spots/
 '
 
 # Check if config file exists, create if not

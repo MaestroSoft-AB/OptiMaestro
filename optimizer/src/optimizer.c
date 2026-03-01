@@ -5,6 +5,7 @@
 #include "maestroutils/config_handler.h"
 #include "maestroutils/error.h"
 #include "maestroutils/file_utils.h"
+#include "maestroutils/file_logging.h"
 
 #include "maestromodules/curl.h"
 
@@ -22,15 +23,15 @@ void optimizer_run_ech(void* _ech_conf)
   ECH_Conf* Conf = (ECH_Conf*)_ech_conf;
   ECH E;
 
-  res = ech_init(&E);
+  res = ech_init(&E, Conf);
   if (res != 0) {
-    perror("ech_init"); // TODO: Logger
+    LOG_ERROR("ech_init"); // TODO: Logger
     return;
   }
 
-  res = ech_update_cache(&E, Conf);
+  res = ech_update_cache(&E);
   if (res != 0) {
-    perror("ech_update_cache"); // TODO: Logger
+    LOG_ERROR("ech_update_cache"); // TODO: Logger
     ech_dispose(&E);
     return;
   }
@@ -44,15 +45,15 @@ void optimizer_run_wch(void* _wch_conf)
   WCH_Conf* Conf = (WCH_Conf*)_wch_conf;
   WCH W;
 
-  res = wch_init(&W);
+  res = wch_init(&W, Conf);
   if (res != 0) {
-    perror("wch_init"); // TODO: Logger
+    LOG_ERROR("wch_init"); // TODO: Logger
     return;
   }
 
-  res = wch_update_cache(&W, Conf);
+  res = wch_update_cache(&W);
   if (res != 0) {
-    perror("wch_update_cache"); // TODO: Logger
+    LOG_ERROR("wch_update_cache"); // TODO: Logger
     wch_dispose(&W);
     return;
   }
@@ -62,7 +63,7 @@ void optimizer_run_wch(void* _wch_conf)
 
 /* ---------------------------------------------------------------- */
 
-int optimizer_init(Optimizer* _OC)
+int optimizer_init(Optimizer* _O)
 {
   int res;
 
@@ -70,51 +71,113 @@ int optimizer_init(Optimizer* _OC)
   curl_global_init(CURL_GLOBAL_DEFAULT);
 #endif
 
-  memset(_OC, 0, sizeof(Optimizer));
+  memset(_O, 0, sizeof(Optimizer));
   create_directory_if_not_exists(OPTIMIZER_CONF_PATH);
 
-  res = optimizer_config_set(_OC);
+  res = optimizer_config_set(&_O->config);
   if (res != 0) {
-    perror("optimizer_config_set"); // TODO: Logger
+    LOG_ERROR("optimizer_config_set"); // TODO: Logger
     return res;
   }
 
   return SUCCESS;
 }
 
-int optimizer_config_set(Optimizer* _OC)
+int optimizer_config_set(Optimizer_Config* _OC)
 {
   // TODO: read from conf file, add conf parse util
-/*
-  char conf_max_threads[4] = {0};
-  char conf_currency[4] = {0};
 
   const char* keys[] = { 
     "sys.max_threads",
     "data.spots.currency",
+    "data.dir",
+    "data.spots.dir",
+    "data.weather.dir",
+    "data.calcs.dir",
   };
+
+  char conf_max_threads[4] = {0};
+  char conf_currency[4] = {0};
+  char conf_data_dir[128] = {0};
+  char conf_data_spots_dir[128] = {0};
+  char conf_data_weather_dir[128] = {0};
+  char conf_data_calcs_dir[128] = {0};
 
   char* values[] = {
     conf_max_threads, 
     conf_currency,
+    conf_data_dir,
+    conf_data_spots_dir,
+    conf_data_weather_dir,
+    conf_data_calcs_dir,
   };
 
-  int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 64, 3);
-
-  for (int i = 0; i < 2; i++)
-    printf("key: %s, value: %s\n", keys[i], values[i]);
+  int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 4, 2);
 
   if (res != SUCCESS)
     return res;
-    */
 
-  _OC->config.max_threads = 6;
-  _OC->config.currency = SPOT_SEK;
+  int max_threads = atoi(values[0]);
+  if (max_threads > 0)
+    _OC->max_threads = max_threads;
+  else
+    _OC->max_threads = 1;
+
+  LOG_INFO("max threads set: %i\n", _OC->max_threads);
+
+  /* if (strcmp(values[1], "SEK") == 0)
+    _OC->config.currency = SPOT_SEK; */
+  
+  /* THESE DO NOT WORK, END UP NULL... */
+  printf("conf data dir: %s\n", conf_data_dir);
+  size_t path_len;
+  if (strcmp(conf_data_dir, "") != 0) {
+    path_len = strlen(conf_data_dir);
+    _OC->data_dir = malloc(path_len + 1);
+    memcpy(_OC->data_dir, conf_data_dir, path_len);
+    _OC->data_dir[path_len] = '\0';
+    if (!_OC->data_dir) {
+      LOG_ERROR("malloc");
+      return ERR_NO_MEMORY;
+    }
+  }
+  if (strcmp(conf_data_spots_dir, "") != 0) {
+    path_len = strlen(conf_data_spots_dir);
+    _OC->data_spots_dir = malloc(path_len + 1);
+    memcpy(_OC->data_spots_dir, conf_data_spots_dir, path_len);
+    _OC->data_spots_dir[path_len] = '\0';
+    if (!_OC->data_spots_dir) {
+      LOG_ERROR("malloc");
+      return ERR_NO_MEMORY;
+    }
+  }
+  if (strcmp(conf_data_weather_dir, "") != 0) {
+    path_len = strlen(conf_data_weather_dir);
+    _OC->data_weather_dir = malloc(path_len + 1);
+    memcpy(_OC->data_weather_dir, conf_data_weather_dir, path_len);
+    _OC->data_weather_dir[path_len] = '\0';
+    if (!_OC->data_weather_dir) {
+      LOG_ERROR("malloc");
+      return ERR_NO_MEMORY;
+    }
+  }
+  if (strcmp(conf_data_calcs_dir, "") != 0) {
+    path_len = strlen(conf_data_calcs_dir);
+    _OC->data_calcs_dir = malloc(path_len + 1);
+    memcpy(_OC->data_calcs_dir, conf_data_calcs_dir, path_len);
+    _OC->data_calcs_dir[path_len] = '\0';
+    if (!_OC->data_calcs_dir) {
+      LOG_ERROR("malloc");
+      return ERR_NO_MEMORY;
+    }
+  }
+
+  _OC->currency = SPOT_SEK;
 
   return SUCCESS;
 }
 
-int optimizer_run(Optimizer* _OC)
+int optimizer_run(Optimizer* _O)
 {
   int i;
   int res;
@@ -123,95 +186,69 @@ int optimizer_run(Optimizer* _OC)
   ECH_Conf ECH_Config[4] = {0}; // One per each price_class
   for (i = 0; i < 4; i++) { 
     ECH_Config[i].price_class = i; 
-    ECH_Config[i].currency = _OC->config.currency; 
+    ECH_Config[i].currency = _O->config.currency; 
+    if (_O->config.data_spots_dir != NULL)
+      ECH_Config[i].data_dir = _O->config.data_spots_dir;
   }
   WCH_Conf WCH_Config[2] = {0}; // One per current+forecast
   WCH_Config[0].forecast = true; WCH_Config[1].forecast = false;
-  WCH_Config[0].latitude = 59.33263; WCH_Config[0].longitude = 18.06453;
-  WCH_Config[1].latitude = 59.33263; WCH_Config[1].longitude = 18.06453;
-
-  /* SINGLE THREADED - one by one */
-  if (_OC->config.max_threads < 3) {
-    ECH E;
-    res = ech_init(&E);
-    if (res != 0) {
-      perror("wch_init"); // TODO: Logger
-      return res;
-    }
-    WCH W;
-    res = wch_init(&W);
-    if (res != 0) {
-      perror("wch_init"); // TODO: Logger
-      ech_dispose(&E);
-      return res;
-    }
-    
-    for (i = 0; i < 4; i++) { 
-      res = ech_update_cache(&E, &ECH_Config[i]);
-      if (res != 0) {
-        perror("ech_update_cache"); // TODO: Logger
-        ech_dispose(&E);
-        return res;
-      }
-      ech_dispose(&E);
-    }
-    ech_dispose(&E);
-
-    for (i = 0; i < 2; i++) { 
-      res = wch_update_cache(&W, &WCH_Config[i]);
-      if (res != 0) {
-        perror("wch_update_cache"); // TODO: Logger
-        wch_dispose(&W);
-        return res;
-      }
-      wch_dispose(&W);
-    }
-    wch_dispose(&W);
-
+  WCH_Config[0].latitude = 59.33263; WCH_Config[1].latitude = 59.33263;
+  WCH_Config[0].longitude = 18.06453; WCH_Config[1].longitude = 18.06453;
+  if (_O->config.data_weather_dir != NULL) {
+    WCH_Config[0].data_dir = _O->config.data_weather_dir; 
+    WCH_Config[1].data_dir = _O->config.data_weather_dir; 
   }
-  /* MULTI THREADED - using thread_pool.h󰩧 */
-  else {
-    _OC->thread_pool = tp_init(_OC->config.max_threads);
-    
-    if (!_OC->thread_pool) {
-      perror("tp_init"); // TODO: Logger
-      return ERR_FATAL;
-    }
 
-    for (i = 0; i < 4; i++) { 
-      TP_Task Task = { optimizer_run_ech, &ECH_Config[i], NULL, NULL };
-      res = tp_task_add(_OC->thread_pool, &Task);
-      if (res != 0) 
-        perror("tp_task_add"); // TODO: Logger
-    }
-
-    for (i = 0; i < 2; i++) { 
-      TP_Task Task = { optimizer_run_wch, &WCH_Config[i], NULL, NULL };
-      res = tp_task_add(_OC->thread_pool, &Task);
-      if (res != 0) 
-        perror("tp_task_add"); // TODO: Logger
-    }
-
-    tp_wait(_OC->thread_pool);
-    tp_dispose(_OC->thread_pool);
-    _OC->thread_pool = NULL;
+  /* Initiate thread pools */
+  _O->thread_pool = tp_init(_O->config.max_threads);
+  if (!_O->thread_pool) {
+    LOG_ERROR("tp_init"); // TODO: Logger
+    return ERR_FATAL;
   }
+
+  /* Run cache handler threads */
+  for (i = 0; i < 4; i++) { 
+    TP_Task Task = { optimizer_run_ech, &ECH_Config[i], NULL, NULL };
+    res = tp_task_add(_O->thread_pool, &Task);
+    if (res != 0) 
+      LOG_ERROR("tp_task_add"); // TODO: Logger
+  }
+
+  for (i = 0; i < 2; i++) { 
+    TP_Task Task = { optimizer_run_wch, &WCH_Config[i], NULL, NULL };
+    res = tp_task_add(_O->thread_pool, &Task);
+    if (res != 0) 
+      LOG_ERROR("tp_task_add"); // TODO: Logger
+  }
+
+  tp_wait(_O->thread_pool);
+  tp_dispose(_O->thread_pool);
+  _O->thread_pool = NULL;
 
   /* run calculator */
 
   return SUCCESS;
 }
 
-void optimizer_dispose(Optimizer* _OC)
+void optimizer_dispose(Optimizer* _O)
 {
-  if (_OC->thread_pool != NULL) {
-    tp_wait(_OC->thread_pool);
-    tp_dispose(_OC->thread_pool);
+  if (_O->thread_pool != NULL) {
+    tp_wait(_O->thread_pool);
+    tp_dispose(_O->thread_pool);
   }
+
+  if (!_O->config.data_dir)
+    free(_O->config.data_dir);
+  if (!_O->config.data_calcs_dir)
+    free(_O->config.data_calcs_dir);
+  if (!_O->config.data_weather_dir)
+    free(_O->config.data_weather_dir);
+  if (!_O->config.data_spots_dir)
+    free(_O->config.data_spots_dir);
 
 #ifdef CURL_GLOBAL_DEFAULT
   curl_global_cleanup(); 
 #endif
 
-  _OC = NULL;
+  _O = NULL;
 }

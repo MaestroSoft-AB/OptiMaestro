@@ -42,13 +42,13 @@ int main(int _argc, const char** _argv)
   LOG_INFO("%s - Started", _argv[0]);
 
   if (global_tls_ca_init() != SUCCESS) {
-    LOG_ERROR("global_tls_ca_init");
+    LOG_INFO("global_tls_ca_init");
     exit(1);
   }
 
   Optimizer Opti;
   if (optimizer_init(&Opti) != SUCCESS) {
-    LOG_ERROR("optimizer_init");
+    LOG_INFO("optimizer_init");
     exit(1);
   }
 
@@ -73,7 +73,7 @@ int main(int _argc, const char** _argv)
       sig_new_data = 0;
     } else if (sig_update_config) {
       printf("%s - Update config...\n", _argv[0]);
-      optimizer_config_set(&Opti);
+      optimizer_config_set(&Opti.config);
       sig_update_config = 0;
     }
 

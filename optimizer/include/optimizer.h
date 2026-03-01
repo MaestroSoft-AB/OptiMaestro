@@ -14,10 +14,14 @@
 
 typedef struct
 {
-  const char*  data_path;
-  uint8_t      max_threads;
+  char*        data_dir;
+  char*        data_spots_dir;
+  char*        data_weather_dir;
+  char*        data_calcs_dir;
 
   SpotCurrency currency;
+
+  uint8_t      max_threads;
 
   // bool      ext_spot;
   // bool      ext_weather;
@@ -35,14 +39,14 @@ typedef struct
 
 /* ========================== INTERFACE ========================== */
 
-int optimizer_init(Optimizer* _OC);
+int optimizer_init(Optimizer* _O);
 
-int optimizer_config_set(Optimizer* _OC);
+int optimizer_config_set(Optimizer_Config* _OC);
 
 /* Runs the optimizer with the given config, updating all data */
-int optimizer_run(Optimizer* _OC);
+int optimizer_run(Optimizer* _O);
 
-void optimizer_dispose(Optimizer* _OC);
+void optimizer_dispose(Optimizer* _O);
 
 /* =============================================================== */
 
