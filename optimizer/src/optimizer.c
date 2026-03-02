@@ -76,7 +76,7 @@ int optimizer_init(Optimizer* _O)
 
   res = optimizer_config_set(&_O->config);
   if (res != 0) {
-    LOG_ERROR("optimizer_config_set");  
+    LOG_ERROR("optimizer_config_set");
     return res;
   }
 

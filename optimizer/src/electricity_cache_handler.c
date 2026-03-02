@@ -1,12 +1,11 @@
 #include "electricity_cache_handler.h"
 #include "data/electricity_structs.h"
 #include "maestroutils/error.h"
-#include "maestroutils/time_utils.h"
 #include "maestroutils/file_utils.h"
 #include "maestroutils/time_utils.h"
 #define MAESTROUTILS_WITH_CJSON 1 // get rid of stupid lsp error
-#include "maestroutils/json_utils.h"
 #include "maestroutils/file_logging.h"
+#include "maestroutils/json_utils.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,11 +15,6 @@
 /* --------------------------- Internal --------------------------- */
 
 #define ECH_BASE_CACHE_PATH_FALLBACK "/var/lib/maestro/spots"
-
-char* ech_get_cache_filepath(const char* _base_path,
-                                   time_t _start,
-                                   SpotPriceClass _price_class, 
-                                   SpotCurrency _currency);
 
 int ech_validate_cache(const char* _cache_path);
 
@@ -50,37 +44,36 @@ int ech_init(ECH* _ECH, const ECH_Conf* _Conf)
 
 int ech_update_cache(ECH* _ECH)
 {
-  LOG_INFO("Updating electricity cache (SE%d)...\r\n", _ECH->conf.price_class+1);
+  LOG_INFO("Updating electricity cache (SE%d)...\r\n", _ECH->conf.price_class + 1);
 
   /* Set conf spot vars */
-  _ECH->spot.price_class = _ECH->conf.price_class; 
-  _ECH->spot.currency    = _ECH->conf.currency; 
+  _ECH->spot.price_class = _ECH->conf.price_class;
+  _ECH->spot.currency = _ECH->conf.currency;
 
   /* Free previous path allocation */
   if (_ECH->cache_path != NULL)
     free((void*)_ECH->cache_path);
 
   time_t today = epoch_now_day();
-  time_t tmrw  = today + 86400;
+  time_t tmrw = today + 86400;
 
-  int update_hour = 13; // Now the question is what time(s) ech should be run.. 
+  int update_hour = 13; // Now the question is what time(s) ech should be run..
   if (time_is_at_or_after_hour(update_hour)) {
     if (!_ECH->conf.data_dir)
-      _ECH->cache_path = ech_get_cache_filepath(ECH_BASE_CACHE_PATH_FALLBACK, 
-        tmrw, _ECH->conf.price_class, _ECH->conf.currency);
+      _ECH->cache_path = ech_get_cache_filepath(ECH_BASE_CACHE_PATH_FALLBACK, tmrw,
+                                                _ECH->conf.price_class, _ECH->conf.currency);
     else
-      _ECH->cache_path = ech_get_cache_filepath(_ECH->conf.data_dir, 
-        tmrw, _ECH->conf.price_class, _ECH->conf.currency);
-  }
-  else { // todays prices
+      _ECH->cache_path = ech_get_cache_filepath(_ECH->conf.data_dir, tmrw, _ECH->conf.price_class,
+                                                _ECH->conf.currency);
+  } else { // todays prices
     if (!_ECH->conf.data_dir)
-      _ECH->cache_path = ech_get_cache_filepath(ECH_BASE_CACHE_PATH_FALLBACK, 
-        today, _ECH->conf.price_class, _ECH->conf.currency);
+      _ECH->cache_path = ech_get_cache_filepath(ECH_BASE_CACHE_PATH_FALLBACK, today,
+                                                _ECH->conf.price_class, _ECH->conf.currency);
     else
-      _ECH->cache_path = ech_get_cache_filepath(_ECH->conf.data_dir, 
-        today, _ECH->conf.price_class, _ECH->conf.currency);
+      _ECH->cache_path = ech_get_cache_filepath(_ECH->conf.data_dir, today, _ECH->conf.price_class,
+                                                _ECH->conf.currency);
   }
-  
+
   if (!_ECH->cache_path) {
     LOG_ERROR("ech_set_cache_filepath");
     return ERR_FATAL;
@@ -92,19 +85,19 @@ int ech_update_cache(ECH* _ECH)
     /* Get updated spots from extAPI and parse it */
     res = epjn_init(&_ECH->epjn_spot);
     if (res != 0) {
-      LOG_ERROR("epjn_init (%i)", res); //TODO: Logger
+      LOG_ERROR("epjn_init (%i)", res); // TODO: Logger
       return res;
     }
-    
+
     res = epjn_update(&_ECH->epjn_spot, _ECH->spot.price_class, today);
     if (res != 0) {
-      LOG_ERROR("epjn_update (%i)", res); //TODO: Logger
+      LOG_ERROR("epjn_update (%i)", res); // TODO: Logger
       return res;
     }
-    
+
     res = epjn_parse(&_ECH->epjn_spot, &_ECH->spot, SPOT_SEK); // TODO: set currency from config
     if (res != 0) {
-      LOG_ERROR("epjn_parse (%i)", res); //TODO: Logger
+      LOG_ERROR("epjn_parse (%i)", res); // TODO: Logger
       return res;
     }
 
@@ -113,21 +106,20 @@ int ech_update_cache(ECH* _ECH)
     /* Write the parsed data to cache */
     res = ech_write_cache_json(&_ECH->spot, _ECH->cache_path);
     if (res != 0) {
-      LOG_ERROR("epjn_init (%i)", res); //TODO: Logger
+      LOG_ERROR("epjn_init (%i)", res); // TODO: Logger
       return res;
     }
-  } 
-  else {
+  } else {
     printf("Electricity cache up to date, parse it..\r\n");
     res = ech_read_cache(&_ECH->spot, _ECH->cache_path);
     if (res != 0) {
-      LOG_ERROR("ech_read_cache (%i)", res); //TODO: Logger
+      LOG_ERROR("ech_read_cache (%i)", res); // TODO: Logger
       return res;
     }
   }
 
   /* LOG_INFO("Electricity Cache updated! Example:\r\n");
-  printf("time=%lu   price=%f   currency=%i\r\n", 
+  printf("time=%lu   price=%f   currency=%i\r\n",
       _ECH->spot.prices[5].time_start, _ECH->spot.prices[5].spot_price, _ECH->spot.currency); */
 
   return SUCCESS;
@@ -135,8 +127,8 @@ int ech_update_cache(ECH* _ECH)
 
 /* Define and return the cache path from given parameters */
 /* TODO: create recursive directories for year/month */
-char* ech_get_cache_filepath(const char* _base_path, const time_t _start, 
-                                   const SpotPriceClass _price_class, const SpotCurrency _currency)
+char* ech_get_cache_filepath(const char* _base_path, const time_t _start,
+                             const SpotPriceClass _price_class, const SpotCurrency _currency)
 {
   char path_buf[512];
 
@@ -157,12 +149,8 @@ char* ech_get_cache_filepath(const char* _base_path, const time_t _start,
   }
 
   /* Build path name */
-  size_t path_len = snprintf(path_buf, sizeof(path_buf), 
-          "%s/SE%01i-%s_%s.json",
-          _base_path,
-          _price_class + 1,
-          currency,
-          start_str);
+  size_t path_len = snprintf(path_buf, sizeof(path_buf), "%s/SE%01i-%s_%s.json", _base_path,
+                             _price_class + 1, currency, start_str);
 
   free((void*)start_str);
 
@@ -180,7 +168,7 @@ int ech_validate_cache(const char* _cache_path)
 {
   if (!_cache_path)
     return ERR_INVALID_ARG;
-  
+
   if (file_exists(_cache_path)) {
     // TODO: Actually validate something?
     return SUCCESS;
@@ -192,12 +180,12 @@ int ech_write_cache_json(const Electricity_Spots* _Spot, const char* _cache_path
 {
   if (!_Spot || !_cache_path)
     return ERR_INVALID_ARG;
- 
+
   cJSON* Json_Root = cJSON_CreateObject();
   if (Json_Root == NULL) {
     const char* err = cJSON_GetErrorPtr();
-    if (err != NULL) 
-      LOG_ERROR("cJSON: %s\n", err); //TODO: Logger
+    if (err != NULL)
+      LOG_ERROR("cJSON: %s\n", err); // TODO: Logger
     return ERR_JSON_PARSE;
   }
 
@@ -205,7 +193,7 @@ int ech_write_cache_json(const Electricity_Spots* _Spot, const char* _cache_path
   // cJSON_AddItemToObject(Json_Root, "units", Json_Units);
 
   cJSON* Json_Spots = cJSON_AddArrayToObject(Json_Root, "spots");
-  
+
   int i;
   for (i = 0; i < _Spot->price_count; i++) {
     Electricity_Spot_Price Prices = _Spot->prices[i];
@@ -216,7 +204,7 @@ int ech_write_cache_json(const Electricity_Spots* _Spot, const char* _cache_path
 
     // DEBUG: have to make sure times are correct everywhere, w. timezone n shiet
     // printf("time_start: %s | time_end: %s \r\n", time_start, time_end);
-    
+
     cJSON_AddStringToObject(Json_Spot, "time_start", time_start);
     free((void*)time_start);
     cJSON_AddStringToObject(Json_Spot, "time_end", time_end);
@@ -268,26 +256,26 @@ int ech_parse_json(Electricity_Spots* _Spot, const char* _json_str)
 
   if (_Spot->prices != NULL)
     free(_Spot->prices); // free if still allocated
-  
+
   /* Parse json to struct */
   cJSON* Json_Root = cJSON_Parse(_json_str);
   if (Json_Root == NULL) {
     const char* err = cJSON_GetErrorPtr();
-    if (err != NULL) 
-      LOG_ERROR("cJSON: %s\n", err); //TODO: Logger
+    if (err != NULL)
+      LOG_ERROR("cJSON: %s\n", err); // TODO: Logger
     return ERR_JSON_PARSE;
   }
 
   cJSON* Json_Spots = cJSON_GetObjectItem(Json_Root, "spots");
   if (!Json_Spots || !cJSON_IsArray(Json_Spots)) {
-      LOG_ERROR("cJSON: Unexpected json format, no array found\n"); //TODO: Logger
-      cJSON_Delete(Json_Root);
-      return ERR_JSON_PARSE;
+    LOG_ERROR("cJSON: Unexpected json format, no array found\n"); // TODO: Logger
+    cJSON_Delete(Json_Root);
+    return ERR_JSON_PARSE;
   }
   int arr_c = cJSON_GetArraySize(Json_Spots);
   _Spot->prices = malloc(arr_c * sizeof(Electricity_Spot_Price));
   if (_Spot->prices == NULL) {
-    LOG_ERROR("malloc"); //TODO: Logger
+    LOG_ERROR("malloc"); // TODO: Logger
     cJSON_Delete(Json_Root);
     return ERR_NO_MEMORY;
   }
@@ -297,7 +285,7 @@ int ech_parse_json(Electricity_Spots* _Spot, const char* _json_str)
   for (i = 0; i < arr_c; i++) {
     cJSON* Spot = cJSON_GetArrayItem(Json_Spots, i);
     if (!Spot) {
-      LOG_ERROR("cJSON: Failed to parse item %d\r\n", i); //TODO: Logger
+      LOG_ERROR("cJSON: Failed to parse item %d\r\n", i); // TODO: Logger
       cJSON_Delete(Json_Root);
       return ERR_JSON_OBJ_NOT_FOUND;
     }
@@ -306,13 +294,13 @@ int ech_parse_json(Electricity_Spots* _Spot, const char* _json_str)
 
     const char* time_start = json_get_string(Spot, "time_start");
     if (!time_start) {
-      LOG_ERROR("json_get_string"); //TODO: Logger
+      LOG_ERROR("json_get_string"); // TODO: Logger
       cJSON_Delete(Json_Root);
       return ERR_JSON_PARSE;
     }
     const char* time_end = json_get_string(Spot, "time_end");
     if (!time_end) {
-      LOG_ERROR("json_get_string"); //TODO: Logger
+      LOG_ERROR("json_get_string"); // TODO: Logger
       free((void*)time_start);
       cJSON_Delete(Json_Root);
       return ERR_JSON_PARSE;
