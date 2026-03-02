@@ -33,9 +33,11 @@ int meteo_parse_current(const char* _json, Weather* _Weather, char* _interval);
 
 /* ---------------------------------------------------------------- */
 
-int meteo_get_hourly(Weather*  _Weather, 
+int meteo_get_hourly(Weather* _Weather, 
                      float    _lat,
                      float    _lon,
+                     float    _panel_azimuth,
+                     float    _panel_tilt,
                      time_t   _start_date, 
                      time_t   _end_date)
 {
@@ -51,7 +53,9 @@ int meteo_get_hourly(Weather*  _Weather,
 
 int meteo_get_15_minutely(Weather* _Weather,
                          float    _lat,
-                         float    _lon)
+                         float    _lon,
+                         float    _panel_azimuth,
+                         float    _panel_tilt)
 {
   if (!_Weather)
     return ERR_INVALID_ARG;
@@ -64,8 +68,8 @@ int meteo_get_15_minutely(Weather* _Weather,
 
   printf("lat : %f lon: %f, azimuth: %f, tilt: %f\n", _lat, _lon, (float)_Weather->panel_azimuth, (float)_Weather->panel_tilt);
 
-  size_t url_len = snprintf(url_buf, METEO_MAX_URL_LEN, METEO_BASE_URL, _lat, _lon, (float)_Weather->panel_azimuth, (float)_Weather->panel_tilt,
-                            METEO_15_MINUTELY_QUERY);
+  size_t url_len = snprintf(url_buf, METEO_MAX_URL_LEN, METEO_BASE_URL, 
+      _lat, _lon, _panel_azimuth, _panel_tilt, METEO_15_MINUTELY_QUERY);
 
   char* url = malloc((url_len + 1) * sizeof(char));
   if (url == NULL) {
@@ -98,8 +102,10 @@ int meteo_get_15_minutely(Weather* _Weather,
 }
 
 int meteo_get_current(Weather* _Weather,
-                         float    _lat,
-                         float    _lon)
+                      float    _lat,
+                      float    _lon,
+                      float    _panel_azimuth,
+                      float    _panel_tilt)
 {
   if (!_Weather)
     return ERR_INVALID_ARG;
@@ -111,9 +117,7 @@ int meteo_get_current(Weather* _Weather,
   char url_buf[METEO_MAX_URL_LEN];
 
   size_t url_len = snprintf(url_buf, METEO_MAX_URL_LEN, METEO_BASE_URL,
-                            _lat, _lon,
-                            (float)_Weather->panel_azimuth, (float)_Weather->panel_tilt,
-                            METEO_CURRENT_QUERY);
+      _lat, _lon, _panel_azimuth, _panel_tilt, METEO_CURRENT_QUERY);
 
   char* url = malloc((url_len + 1) * sizeof(char));
   if (url == NULL) {

@@ -35,16 +35,22 @@
 int meteo_get_hourly(Weather* _Weather, 
                      float    _lat,
                      float    _lon,
+                     float    _panel_azimuth,
+                     float    _panel_tilt,
                      time_t   _start_date, 
                      time_t   _end_date);
 
 int meteo_get_15_minutely(Weather* _Weather,
                          float    _lat,
-                         float    _lon);
+                         float    _lon,
+                         float    _panel_azimuth,
+                         float    _panel_tilt);
 
 int meteo_get_current(Weather* _Weather,
                       float    _lat,
-                      float    _lon);
+                      float    _lon,
+                      float    _panel_azimuth,
+                      float    _panel_tilt);
 
 #endif
 

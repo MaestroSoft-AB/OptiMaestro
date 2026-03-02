@@ -100,16 +100,16 @@ int optimizer_config_set(Optimizer_Config* _OC)
     "facility.panel.azimuth",
   };
 
-  char conf_max_threads[4] = {0};
-  char conf_currency[4] = {0};
-  char conf_data_dir[128] = {0};
-  char conf_data_spots_dir[128] = {0};
-  char conf_data_weather_dir[128] = {0};
-  char conf_data_calcs_dir[128] = {0};
-  char conf_facility_lat[32] = {0};
-  char conf_facility_lon[32] = {0};
-  char conf_solar_tilt[4] = {0};
-  char conf_solar_azimuth[4] = {0};
+  char conf_max_threads[64] = {0};
+  char conf_currency[64] = {0};
+  char conf_data_dir[64] = {0};
+  char conf_data_spots_dir[64] = {0};
+  char conf_data_weather_dir[64] = {0};
+  char conf_data_calcs_dir[64] = {0};
+  char conf_facility_lat[64] = {0};
+  char conf_facility_lon[64] = {0};
+  char conf_solar_tilt[64] = {0};
+  char conf_solar_azimuth[64] = {0};
 
   char* values[] = {
     conf_max_threads, 
@@ -124,7 +124,7 @@ int optimizer_config_set(Optimizer_Config* _OC)
     conf_solar_azimuth,
   };
 
-  int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 128, 10);
+  int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 64, 10);
 
   if (res != SUCCESS)
     return res;
@@ -145,7 +145,12 @@ int optimizer_config_set(Optimizer_Config* _OC)
   _OC->panel_tilt = (unsigned short)panel_tilt;
   _OC->panel_azimuth = (short)panel_azimuth;
 
-  LOG_INFO("max threads set: %i\n", _OC->max_threads);
+  printf("lat: %s\n", conf_facility_lat);
+  printf("lon: %s\n", conf_facility_lat);
+
+  LOG_INFO("max_threads: %i\n", _OC->max_threads);
+  LOG_INFO("latitude: %f, longitude %f\n", _OC->longitude, _OC->latitude);
+  LOG_INFO("azimuth %i, tilt: %i\n", _OC->panel_azimuth, _OC->panel_tilt);
 
   /* if (strcmp(values[1], "SEK") == 0)
     _OC->config.currency = SPOT_SEK; */

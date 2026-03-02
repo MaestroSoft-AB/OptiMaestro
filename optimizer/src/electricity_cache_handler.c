@@ -38,8 +38,11 @@ int ech_init(ECH* _ECH, const ECH_Conf* _Conf)
   memset(&_ECH->epjn_spot, 0, sizeof(EPJN_Spots));
   memset(&_ECH->conf, 0, sizeof(ECH_Conf));
 
-  if (!_Conf->data_dir)
+  if (!_Conf->data_dir) {
+    LOG_WARN("No electricity spots cache dir found, setting fallback: %s", 
+        ECH_BASE_CACHE_PATH_FALLBACK);
     create_directory_if_not_exists(ECH_BASE_CACHE_PATH_FALLBACK);
+  }
   else {
     create_directory_if_not_exists(_Conf->data_dir);
     _ECH->conf.data_dir = _Conf->data_dir;

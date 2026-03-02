@@ -35,23 +35,20 @@ int wch_init(WCH* _WCH, const WCH_Conf* _Conf)
   printf("WCH data dir: %s\n", _Conf->data_dir);
 
   if (!_Conf->data_dir) {
+    LOG_WARN("No weather cache dir found, setting fallback: %s", 
+        WCH_BASE_CACHE_PATH_FALLBACK);
     create_directory_if_not_exists(WCH_BASE_CACHE_PATH_FALLBACK);
-    /* size_t path_len = strlen(WCH_BASE_CACHE_PATH_FALLBACK);
-    _WCH->conf.data_dir = malloc(path_len + 1);
-    if (!_WCH->conf.data_dir) {
-      LOG_ERROR("malloc");
-      return ERR_NO_MEMORY;
-    }
-    memcpy(_WCH->conf.data_dir) */
-
   }
   else {
     create_directory_if_not_exists(_Conf->data_dir);
     _WCH->conf.data_dir = _Conf->data_dir;
   }
 
+  _WCH->conf.forecast = _Conf->forecast;
   _WCH->conf.latitude = _Conf->latitude;
   _WCH->conf.longitude = _Conf->longitude;
+  _WCH->conf.panel_azimuth = _Conf->panel_azimuth;
+  _WCH->conf.panel_tilt = _Conf->panel_tilt;
 
   return SUCCESS;
 }
@@ -63,24 +60,25 @@ int wch_update_cache(WCH* _WCH)
   /* Set conf weather vars */
   _WCH->weather.latitude  = _WCH->conf.latitude; 
   _WCH->weather.longitude = _WCH->conf.longitude; 
+  _WCH->weather.panel_tilt  = _WCH->conf.panel_tilt; 
+  _WCH->weather.panel_azimuth = _WCH->conf.panel_azimuth; 
 
   /* Free previous path allocation if exists */
   if (_WCH->data_path != NULL)
     free((void*)_WCH->data_path);
 
   /* Define cache path */
-  time_t today = epoch_now_day();
-  // time_t tmrw  = today + 86400;
+  time_t now = time(NULL);
 
   if (!_WCH->conf.data_dir)  // fallback data dir
     _WCH->data_path = wch_get_cache_filepath(WCH_BASE_CACHE_PATH_FALLBACK, 
-        today, _WCH->conf.forecast);
+        now, _WCH->conf.forecast);
   else
     _WCH->data_path = wch_get_cache_filepath(_WCH->conf.data_dir, 
-        today, _WCH->conf.forecast);
+        now, _WCH->conf.forecast);
   
   if (!_WCH->data_path) {
-    perror("wch_set_cache_filepath");
+    LOG_ERROR("wch_set_cache_filepath");
     return ERR_FATAL;
   }
 
@@ -92,17 +90,22 @@ int wch_update_cache(WCH* _WCH)
   /* TODO: better interval handling and ability to get specific date range 
    * (so we can create a historical archive) */
   if (_WCH->conf.forecast) {
-    printf("!!!Forecast!!!\n");
     if (meteo_get_15_minutely(&_WCH->weather, 
-          _WCH->conf.latitude, 
-          _WCH->conf.longitude) != 0) {
-      perror("meteo_get_15_minutes");
+                              (float)_WCH->conf.latitude, 
+                              (float)_WCH->conf.longitude,
+                              (float)_WCH->conf.panel_azimuth,
+                              (float)_WCH->conf.panel_tilt) != 0) {
+      LOG_ERROR("meteo_get_15_minutes");
       return ERR_INTERNAL;
     }
   }
   else {
-    if (meteo_get_current(&_WCH->weather, _WCH->conf.latitude, _WCH->conf.longitude) != 0) {
-      perror("meteo_get_15_current");
+    if (meteo_get_current(&_WCH->weather, 
+                          (float)_WCH->conf.latitude, 
+                          (float)_WCH->conf.longitude,
+                          (float)_WCH->conf.panel_azimuth,
+                          (float)_WCH->conf.panel_tilt) != 0) {
+      LOG_ERROR("meteo_get_current");
       return ERR_INTERNAL;
     }
   }
@@ -112,7 +115,7 @@ int wch_update_cache(WCH* _WCH)
 
   /* Write parsed weather to cache */
   if (wch_write_cache_json(&_WCH->weather, _WCH->data_path) != 0) {
-    perror("wch_write_cache_json");
+    LOG_ERROR("wch_write_cache_json");
     return ERR_INTERNAL;
   }
 
@@ -220,7 +223,7 @@ int wch_write_cache_json(const Weather* _Weather, const char* _cache_path)
     cJSON_AddNumberToObject(Json_Object, "radiation_direct_n", Vals.radiation_direct_n);
     cJSON_AddNumberToObject(Json_Object, "radiation_diffuse", Vals.radiation_diffuse);
     cJSON_AddNumberToObject(Json_Object, "radiation_shortwave", Vals.radiation_shortwave);
-    cJSON_AddNumberToObject(Json_Object, "radiation_titled", Vals.radiation_tilted);
+    cJSON_AddNumberToObject(Json_Object, "radiation_tilted", Vals.radiation_tilted);
     cJSON_AddNumberToObject(Json_Object, "sun_duration", Vals.sun_duration);
 
     cJSON_AddItemToArray(Json_Values, Json_Object);
