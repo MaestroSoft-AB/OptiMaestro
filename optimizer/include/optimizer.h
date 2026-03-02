@@ -14,14 +14,20 @@
 
 typedef struct
 {
-  char*        data_dir;
-  char*        data_spots_dir;
-  char*        data_weather_dir;
-  char*        data_calcs_dir;
+  char*          data_dir;
+  char*          data_spots_dir;
+  char*          data_weather_dir;
+  char*          data_calcs_dir;
 
-  SpotCurrency currency;
+  SpotCurrency   currency;
 
-  uint8_t      max_threads;
+  float          latitude;         
+  float          longitude;         
+
+  short          panel_azimuth; // +/- 180
+  unsigned short panel_tilt; 
+
+  uint8_t        max_threads;
 
   // bool      ext_spot;
   // bool      ext_weather;

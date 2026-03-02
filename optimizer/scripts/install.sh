@@ -19,18 +19,21 @@ log.level=INFO
 log.path=/var/log/maestro.log
 
 ################## Data ##################
-data.dir=/var/lib/maestro/
-data.spots.dir=/var/lib/maestro/spots/
-data.weather.dir=/var/lib/maestro/weather/
-data.calcs.dir=/var/lib/maestro/calcs/
+data.dir=/var/lib/maestro
+data.spots.dir=/var/lib/maestro/spots
+data.weather.dir=/var/lib/maestro/weather
+data.calcs.dir=/var/lib/maestro/calcs
 
 data.type=json
 
 data.spots.currency=SEK
 
 ################ Facility ################
+facility.latitude=59.29306884333855
+facility.longitude=18.081392635403912
 facility.panel.tilt=45
 facility.panel.azimuth=180
+
 '
 
 # Check if config file exists, create if not

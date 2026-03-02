@@ -13,20 +13,23 @@
 
 typedef struct
 {
-  const char* data_dir;
-  float       latitude;
-  float       longitude;
+  const char*  data_dir;
+  float        latitude;
+  float        longitude;
 
-  bool        forecast;
+  int          panel_tilt;
+  unsigned int panel_azimuth;
+
+  bool         forecast;
 
 } WCH_Conf;
 
 typedef struct
 {
-  Weather         weather;
-  WCH_Conf        conf;
+  Weather     weather;
+  WCH_Conf    conf;
 
-  const char*     data_path;
+  const char* data_path;
 
 } WCH; // Weather Cache Handler
 

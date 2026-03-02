@@ -62,8 +62,10 @@ int meteo_get_15_minutely(Weather* _Weather,
   /* Define URL */
   char url_buf[METEO_MAX_URL_LEN];
 
-  size_t url_len = snprintf(url_buf, METEO_MAX_URL_LEN, METEO_BASE_URL,
-                            _lat, _lon, METEO_15_MINUTELY_QUERY);
+  printf("lat : %f lon: %f, azimuth: %f, tilt: %f\n", _lat, _lon, (float)_Weather->panel_azimuth, (float)_Weather->panel_tilt);
+
+  size_t url_len = snprintf(url_buf, METEO_MAX_URL_LEN, METEO_BASE_URL, _lat, _lon, (float)_Weather->panel_azimuth, (float)_Weather->panel_tilt,
+                            METEO_15_MINUTELY_QUERY);
 
   char* url = malloc((url_len + 1) * sizeof(char));
   if (url == NULL) {
@@ -109,7 +111,9 @@ int meteo_get_current(Weather* _Weather,
   char url_buf[METEO_MAX_URL_LEN];
 
   size_t url_len = snprintf(url_buf, METEO_MAX_URL_LEN, METEO_BASE_URL,
-                            _lat, _lon, METEO_CURRENT_QUERY);
+                            _lat, _lon,
+                            (float)_Weather->panel_azimuth, (float)_Weather->panel_tilt,
+                            METEO_CURRENT_QUERY);
 
   char* url = malloc((url_len + 1) * sizeof(char));
   if (url == NULL) {

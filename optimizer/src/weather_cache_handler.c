@@ -84,8 +84,6 @@ int wch_update_cache(WCH* _WCH)
     return ERR_FATAL;
   }
 
-  printf("WCH data_path: %s\r\n", _WCH->data_path);
-
   /* TODO: Caching+validating - Ideally not just based on cache name 
    * since we don't want files that overlap in data 
    * Maybe just start on implementing HDF5/sqlite tbh */
@@ -94,6 +92,7 @@ int wch_update_cache(WCH* _WCH)
   /* TODO: better interval handling and ability to get specific date range 
    * (so we can create a historical archive) */
   if (_WCH->conf.forecast) {
+    printf("!!!Forecast!!!\n");
     if (meteo_get_15_minutely(&_WCH->weather, 
           _WCH->conf.latitude, 
           _WCH->conf.longitude) != 0) {
@@ -190,6 +189,8 @@ int wch_write_cache_json(const Weather* _Weather, const char* _cache_path)
   cJSON_AddNumberToObject(Json_Meta, "interval_minutes", _Weather->update_interval);
   cJSON_AddNumberToObject(Json_Meta, "latitude", _Weather->latitude);
   cJSON_AddNumberToObject(Json_Meta, "longitude", _Weather->longitude);
+  cJSON_AddNumberToObject(Json_Meta, "solar_panel_azimuth", _Weather->panel_azimuth);
+  cJSON_AddNumberToObject(Json_Meta, "solar_panel_tilt", _Weather->panel_tilt);
 
   cJSON_AddStringToObject(Json_Meta, "temperature_unit", _Weather->temperature_unit);
   cJSON_AddStringToObject(Json_Meta, "windspeed_unit", _Weather->windspeed_unit);

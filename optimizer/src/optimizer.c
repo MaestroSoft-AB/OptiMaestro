@@ -94,6 +94,10 @@ int optimizer_config_set(Optimizer_Config* _OC)
     "data.spots.dir",
     "data.weather.dir",
     "data.calcs.dir",
+    "facility.latitude",
+    "facility.longitude",
+    "facility.panel.tilt",
+    "facility.panel.azimuth",
   };
 
   char conf_max_threads[4] = {0};
@@ -102,6 +106,10 @@ int optimizer_config_set(Optimizer_Config* _OC)
   char conf_data_spots_dir[128] = {0};
   char conf_data_weather_dir[128] = {0};
   char conf_data_calcs_dir[128] = {0};
+  char conf_facility_lat[32] = {0};
+  char conf_facility_lon[32] = {0};
+  char conf_solar_tilt[4] = {0};
+  char conf_solar_azimuth[4] = {0};
 
   char* values[] = {
     conf_max_threads, 
@@ -110,18 +118,32 @@ int optimizer_config_set(Optimizer_Config* _OC)
     conf_data_spots_dir,
     conf_data_weather_dir,
     conf_data_calcs_dir,
+    conf_facility_lat,
+    conf_facility_lon,
+    conf_solar_tilt,
+    conf_solar_azimuth,
   };
 
-  int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 128, 6);
+  int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 128, 10);
 
   if (res != SUCCESS)
     return res;
 
-  int max_threads = atoi(values[0]);
+  int max_threads = atoi(conf_max_threads);
   if (max_threads > 0)
     _OC->max_threads = max_threads;
   else
     _OC->max_threads = 1;
+
+  float lat = atof(conf_facility_lat);
+  float lon = atof(conf_facility_lon);
+  _OC->latitude = lat;
+  _OC->longitude = lon;
+
+  int panel_tilt    = atoi(conf_solar_tilt);
+  int panel_azimuth = atoi(conf_solar_azimuth);
+  _OC->panel_tilt = (unsigned short)panel_tilt;
+  _OC->panel_azimuth = (short)panel_azimuth;
 
   LOG_INFO("max threads set: %i\n", _OC->max_threads);
 
@@ -190,12 +212,15 @@ int optimizer_run(Optimizer* _O)
       ECH_Config[i].data_dir = _O->config.data_spots_dir;
   }
   WCH_Conf WCH_Config[2] = {0}; // One per current+forecast
-  WCH_Config[0].forecast = true; WCH_Config[1].forecast = false;
-  WCH_Config[0].latitude = 59.33263; WCH_Config[1].latitude = 59.33263;
-  WCH_Config[0].longitude = 18.06453; WCH_Config[1].longitude = 18.06453;
-  if (_O->config.data_weather_dir != NULL) {
-    WCH_Config[0].data_dir = _O->config.data_weather_dir; 
-    WCH_Config[1].data_dir = _O->config.data_weather_dir; 
+  WCH_Config[0].forecast = true; 
+  WCH_Config[1].forecast = false;
+  for (i = 0; i < 2; i++) {
+    WCH_Config[i].latitude = _O->config.latitude; 
+    WCH_Config[i].longitude = _O->config.longitude; 
+    WCH_Config[i].panel_azimuth = _O->config.panel_azimuth;
+    WCH_Config[i].panel_tilt = _O->config.panel_tilt;
+    if (_O->config.data_weather_dir != NULL)
+      WCH_Config[i].data_dir = _O->config.data_weather_dir; 
   }
 
   /* Initiate thread pools */

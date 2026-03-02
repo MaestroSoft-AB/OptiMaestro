@@ -30,6 +30,9 @@ int ech_parse_json(Electricity_Spots* _Spot, const char* _json_str);
 
 int ech_init(ECH* _ECH, const ECH_Conf* _Conf)
 {
+  if (!_ECH || !_Conf)
+    return ERR_INVALID_ARG;
+
   memset(_ECH, 0, sizeof(ECH));
   memset(&_ECH->spot, 0, sizeof(Electricity_Spots));
   memset(&_ECH->epjn_spot, 0, sizeof(EPJN_Spots));
