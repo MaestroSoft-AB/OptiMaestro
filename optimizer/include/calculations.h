@@ -12,5 +12,6 @@ typedef enum
 } Price_Avg;
 
 int print_averages(const Electricity_Spots* s);
+int calc_get_average();
 
 #endif

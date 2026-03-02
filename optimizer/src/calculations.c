@@ -1,5 +1,6 @@
 #include "calculations.h"
 #include <maestroutils/error.h>
+#include <maestroutils/file_logging.h>
 #include <stdio.h>
 #include <time.h>
 #define BASE_CACHE_PATH "/var/lib/maestro/spots"
@@ -46,6 +47,27 @@ int print_averages(const Electricity_Spots* s)
              s->prices[i].spot_price);
     }
   }
+
+  return 0;
+}
+
+int calc_get_average()
+{
+
+  ECH_Conf conf = {"/var/lib/maestro/", SE1, SPOT_SEK};
+  ECH* ech = {0};
+
+  if (ech_init(ech, &conf) != SUCCESS) {
+    return ERR_IO;
+  }
+
+  int res = ech_read_cache(&ech->spot, ech->cache_path);
+  if (res != 0) {
+    LOG_ERROR("ech_read_cache (%i)", res); // TODO: Logger
+    return res;
+  }
+
+  print_averages(&ech->spot);
 
   return 0;
 }

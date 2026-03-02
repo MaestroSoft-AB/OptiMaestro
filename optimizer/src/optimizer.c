@@ -1,17 +1,17 @@
 #include "optimizer.h"
+#include "calculations.h"
 #include "data/electricity_structs.h"
 #include "electricity_cache_handler.h"
+#include "maestromodules/curl.h"
 #include "maestromodules/thread_pool.h"
 #include "maestroutils/config_handler.h"
 #include "maestroutils/error.h"
-#include "maestroutils/file_utils.h"
 #include "maestroutils/file_logging.h"
+#include "maestroutils/file_utils.h"
 
-#include "maestromodules/curl.h"
-
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
-#include <pthread.h>
 
 /* --------------------- Internal declarations --------------------- */
 
@@ -87,13 +87,9 @@ int optimizer_config_set(Optimizer_Config* _OC)
 {
   // TODO: read from conf file, add conf parse util
 
-  const char* keys[] = { 
-    "sys.max_threads",
-    "data.spots.currency",
-    "data.dir",
-    "data.spots.dir",
-    "data.weather.dir",
-    "data.calcs.dir",
+  const char* keys[] = {
+      "sys.max_threads", "data.spots.currency", "data.dir",
+      "data.spots.dir",  "data.weather.dir",    "data.calcs.dir",
   };
 
   char conf_max_threads[4] = {0};
@@ -104,12 +100,8 @@ int optimizer_config_set(Optimizer_Config* _OC)
   char conf_data_calcs_dir[128] = {0};
 
   char* values[] = {
-    conf_max_threads, 
-    conf_currency,
-    conf_data_dir,
-    conf_data_spots_dir,
-    conf_data_weather_dir,
-    conf_data_calcs_dir,
+      conf_max_threads,    conf_currency,         conf_data_dir,
+      conf_data_spots_dir, conf_data_weather_dir, conf_data_calcs_dir,
   };
 
   int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 4, 2);
@@ -127,7 +119,7 @@ int optimizer_config_set(Optimizer_Config* _OC)
 
   /* if (strcmp(values[1], "SEK") == 0)
     _OC->config.currency = SPOT_SEK; */
-  
+
   /* THESE DO NOT WORK, END UP NULL... */
   printf("conf data dir: %s\n", conf_data_dir);
   size_t path_len;
@@ -184,19 +176,22 @@ int optimizer_run(Optimizer* _O)
 
   /* Define cache runs with config structs */
   ECH_Conf ECH_Config[4] = {0}; // One per each price_class
-  for (i = 0; i < 4; i++) { 
-    ECH_Config[i].price_class = i; 
-    ECH_Config[i].currency = _O->config.currency; 
+  for (i = 0; i < 4; i++) {
+    ECH_Config[i].price_class = i;
+    ECH_Config[i].currency = _O->config.currency;
     if (_O->config.data_spots_dir != NULL)
       ECH_Config[i].data_dir = _O->config.data_spots_dir;
   }
   WCH_Conf WCH_Config[2] = {0}; // One per current+forecast
-  WCH_Config[0].forecast = true; WCH_Config[1].forecast = false;
-  WCH_Config[0].latitude = 59.33263; WCH_Config[1].latitude = 59.33263;
-  WCH_Config[0].longitude = 18.06453; WCH_Config[1].longitude = 18.06453;
+  WCH_Config[0].forecast = true;
+  WCH_Config[1].forecast = false;
+  WCH_Config[0].latitude = 59.33263;
+  WCH_Config[1].latitude = 59.33263;
+  WCH_Config[0].longitude = 18.06453;
+  WCH_Config[1].longitude = 18.06453;
   if (_O->config.data_weather_dir != NULL) {
-    WCH_Config[0].data_dir = _O->config.data_weather_dir; 
-    WCH_Config[1].data_dir = _O->config.data_weather_dir; 
+    WCH_Config[0].data_dir = _O->config.data_weather_dir;
+    WCH_Config[1].data_dir = _O->config.data_weather_dir;
   }
 
   /* Initiate thread pools */
@@ -207,17 +202,17 @@ int optimizer_run(Optimizer* _O)
   }
 
   /* Run cache handler threads */
-  for (i = 0; i < 4; i++) { 
-    TP_Task Task = { optimizer_run_ech, &ECH_Config[i], NULL, NULL };
+  for (i = 0; i < 4; i++) {
+    TP_Task Task = {optimizer_run_ech, &ECH_Config[i], NULL, NULL};
     res = tp_task_add(_O->thread_pool, &Task);
-    if (res != 0) 
+    if (res != 0)
       LOG_ERROR("tp_task_add"); // TODO: Logger
   }
 
-  for (i = 0; i < 2; i++) { 
-    TP_Task Task = { optimizer_run_wch, &WCH_Config[i], NULL, NULL };
+  for (i = 0; i < 2; i++) {
+    TP_Task Task = {optimizer_run_wch, &WCH_Config[i], NULL, NULL};
     res = tp_task_add(_O->thread_pool, &Task);
-    if (res != 0) 
+    if (res != 0)
       LOG_ERROR("tp_task_add"); // TODO: Logger
   }
 
@@ -226,6 +221,8 @@ int optimizer_run(Optimizer* _O)
   _O->thread_pool = NULL;
 
   /* run calculator */
+
+  calc_get_average();
 
   return SUCCESS;
 }
@@ -247,7 +244,7 @@ void optimizer_dispose(Optimizer* _O)
     free(_O->config.data_spots_dir);
 
 #ifdef CURL_GLOBAL_DEFAULT
-  curl_global_cleanup(); 
+  curl_global_cleanup();
 #endif
 
   _O = NULL;
