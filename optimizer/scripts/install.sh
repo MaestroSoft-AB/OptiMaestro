@@ -22,11 +22,15 @@ log.path=/var/log/maestro.log
 data.dir=/var/lib/maestro/
 data.spots.dir=/var/lib/maestro/spots/
 data.weather.dir=/var/lib/maestro/weather/
+data.calcs.dir=/var/lib/maestro/calcs/
 
 data.type=json
 
 data.spots.currency=SEK
 
+################ Facility ################
+facility.panel.tilt=45
+facility.panel.azimuth=180
 '
 
 # Check if config file exists, create if not
