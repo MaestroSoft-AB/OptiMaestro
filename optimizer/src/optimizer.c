@@ -76,7 +76,7 @@ int optimizer_init(Optimizer* _O)
 
   res = optimizer_config_set(&_O->config);
   if (res != 0) {
-    LOG_ERROR("optimizer_config_set"); // TODO: Logger
+    LOG_ERROR("optimizer_config_set");  
     return res;
   }
 
@@ -112,7 +112,7 @@ int optimizer_config_set(Optimizer_Config* _OC)
     conf_data_calcs_dir,
   };
 
-  int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 4, 2);
+  int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 128, 6);
 
   if (res != SUCCESS)
     return res;
@@ -129,7 +129,6 @@ int optimizer_config_set(Optimizer_Config* _OC)
     _OC->config.currency = SPOT_SEK; */
   
   /* THESE DO NOT WORK, END UP NULL... */
-  printf("conf data dir: %s\n", conf_data_dir);
   size_t path_len;
   if (strcmp(conf_data_dir, "") != 0) {
     path_len = strlen(conf_data_dir);

@@ -244,9 +244,6 @@ void wch_dispose(WCH* _WCH)
   if (_WCH->data_path != NULL)
     free((void*)_WCH->data_path);
 
-  if (_WCH->conf.data_dir != NULL)
-    free((void*)_WCH->conf.data_dir);
-
   if (_WCH->weather.temperature_unit    != NULL)
     free((void*)_WCH->weather.temperature_unit);
   if (_WCH->weather.windspeed_unit      != NULL)
