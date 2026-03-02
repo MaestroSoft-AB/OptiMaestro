@@ -3,8 +3,8 @@
 #include "maestroutils/error.h"
 #include "maestroutils/signal_handler.h"
 #include "optimizer.h"
-#include <maestroutils/file_logging.h>
 #include <maestromodules/tls_global_ca.h>
+#include <maestroutils/file_logging.h>
 #include <time.h>
 
 #define OPTIMIZER_LOG_PATH "/var/log/maestro.log"

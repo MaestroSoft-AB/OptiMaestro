@@ -1,5 +1,9 @@
 #include "opti/opti_instance.h"
+#include <maestroutils/file_utils.h>
 #include <stdio.h>
+#include <time.h>
+
+#define OPTI_AVERAGE_PATH "/var/lib/maestro/"
 
 //-----------------Internal Functions-----------------
 //
@@ -17,9 +21,11 @@ int osi_get_solar_data(Osi_RequestCtx* _ctx);
 int osi_get_temp_1_data(Osi_RequestCtx* _ctx);
 int osi_get_jacuzzi_data(Osi_RequestCtx* _ctx);
 int osi_get_overview(Osi_RequestCtx* _ctx);
+int osi_get_average(Osi_RequestCtx* _ctx);
+int osi_get_average_hourly(Osi_RequestCtx* _ctx);
 
 /* REMEMBER TO CHANGE COUNT WHEN ADDING ENDPOINT! */
-#define ENDPOINTS_COUNT 4
+#define ENDPOINTS_COUNT 6
 
 const Device_API_Endpoint Endpoints[ENDPOINTS_COUNT] = {{
                                                             "/solar-cell",
@@ -40,7 +46,19 @@ const Device_API_Endpoint Endpoints[ENDPOINTS_COUNT] = {{
                                                             "/overview",
                                                             HTTP_GET,
                                                             osi_get_overview,
-                                                        }};
+                                                        },
+                                                        {
+                                                            "/average",
+                                                            HTTP_GET,
+                                                            osi_get_average,
+                                                        },
+                                                        {
+                                                            "/average-hourly",
+                                                            HTTP_GET,
+                                                            osi_get_average_hourly,
+                                                        }}
+
+;
 
 //--------------------------------------------------------------------------//
 
@@ -138,6 +156,83 @@ int osi_get_overview(Osi_RequestCtx* _ctx)
   const char* body = "{\"overview\":Yahoooooooo}";
   return osi_set_response(_ctx->conn, 200, "application/json", body);
 }
+
+int osi_get_average(Osi_RequestCtx* _ctx)
+{
+  if (!_ctx || !_ctx->conn || !_ctx->conn->request) {
+    return ERR_INVALID_ARG;
+  }
+
+  time_t t = time(NULL);
+  struct tm tm = *localtime(&t);
+
+  char today[11]; // YYYY-MM-DD
+  strftime(today, sizeof(today), "%Y%m%d", &tm);
+
+  char full_filename[256];
+
+  int res = snprintf(full_filename, sizeof(full_filename), "%s%s-SP96-SE1.json", OPTI_AVERAGE_PATH,
+                     today);
+
+  if (res < 0 || (size_t)res >= sizeof(full_filename)) {
+    printf("Failed to format filename\n");
+    return osi_set_response(_ctx->conn, 503, "application/json",
+                            "{\"error\":\"average.json not available\"}");
+  }
+
+  printf("Fetching data from: %s\n", full_filename);
+
+  const char* file_content = read_file_to_string((const char*)full_filename);
+  if (!file_content) {
+    return osi_set_response(_ctx->conn, 503, "application/json",
+                            "{\"error\":\"average.json not available\"}");
+  }
+
+  res = osi_set_response(_ctx->conn, 200, "application/json", file_content);
+
+  free((void*)file_content);
+
+  return res;
+}
+
+int osi_get_average_hourly(Osi_RequestCtx* _ctx)
+{
+  if (!_ctx || !_ctx->conn || !_ctx->conn->request) {
+    return ERR_INVALID_ARG;
+  }
+
+  time_t t = time(NULL);
+  struct tm tm = *localtime(&t);
+
+  char today[11]; // YYYY-MM-DD
+  strftime(today, sizeof(today), "%Y%m%d", &tm);
+
+  char full_filename[256];
+
+  int res = snprintf(full_filename, sizeof(full_filename), "%s%s-SP24-SE1.json", OPTI_AVERAGE_PATH,
+                     today);
+
+  if (res < 0 || (size_t)res >= sizeof(full_filename)) {
+    printf("Failed to format filename\n");
+    return osi_set_response(_ctx->conn, 503, "application/json",
+                            "{\"error\":\"average.json not available\"}");
+  }
+
+  printf("Fetching data from: %s\n", full_filename);
+
+  const char* file_content = read_file_to_string((const char*)full_filename);
+  if (!file_content) {
+    return osi_set_response(_ctx->conn, 503, "application/json",
+                            "{\"error\":\"average.json not available\"}");
+  }
+
+  res = osi_set_response(_ctx->conn, 200, "application/json", file_content);
+
+  free((void*)file_content);
+
+  return res;
+}
+
 /*************************************************************************/
 /***************************************************************************************************************/
 int osi_init(void* _context, Opti_Server_Instance* _Instance, HTTP_Server_Connection* _Connection)
