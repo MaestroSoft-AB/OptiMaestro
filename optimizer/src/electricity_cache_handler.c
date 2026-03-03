@@ -33,11 +33,10 @@ int ech_init(ECH* _ECH, const ECH_Conf* _Conf)
   memset(&_ECH->conf, 0, sizeof(ECH_Conf));
 
   if (!_Conf->data_dir) {
-    LOG_WARN("No electricity spots cache dir found, setting fallback: %s", 
-        ECH_BASE_CACHE_PATH_FALLBACK);
+    LOG_WARN("No electricity spots cache dir found, setting fallback: %s",
+             ECH_BASE_CACHE_PATH_FALLBACK);
     create_directory_if_not_exists(ECH_BASE_CACHE_PATH_FALLBACK);
-  }
-  else {
+  } else {
     create_directory_if_not_exists(_Conf->data_dir);
     _ECH->conf.data_dir = _Conf->data_dir;
   }
@@ -63,21 +62,24 @@ int ech_update_cache(ECH* _ECH)
   time_t today = epoch_now_day();
   time_t tmrw = today + 86400;
 
+  time_t target_day = today;
+
   int update_hour = 13; // Now the question is what time(s) ech should be run..
   if (time_is_at_or_after_hour(update_hour)) {
+    target_day = tmrw;
     if (!_ECH->conf.data_dir)
-      _ECH->cache_path = ech_get_cache_filepath(ECH_BASE_CACHE_PATH_FALLBACK, tmrw,
+      _ECH->cache_path = ech_get_cache_filepath(ECH_BASE_CACHE_PATH_FALLBACK, target_day,
                                                 _ECH->conf.price_class, _ECH->conf.currency);
     else
-      _ECH->cache_path = ech_get_cache_filepath(_ECH->conf.data_dir, tmrw, _ECH->conf.price_class,
-                                                _ECH->conf.currency);
+      _ECH->cache_path = ech_get_cache_filepath(_ECH->conf.data_dir, target_day,
+                                                _ECH->conf.price_class, _ECH->conf.currency);
   } else { // todays prices
     if (!_ECH->conf.data_dir)
-      _ECH->cache_path = ech_get_cache_filepath(ECH_BASE_CACHE_PATH_FALLBACK, today,
+      _ECH->cache_path = ech_get_cache_filepath(ECH_BASE_CACHE_PATH_FALLBACK, target_day,
                                                 _ECH->conf.price_class, _ECH->conf.currency);
     else
-      _ECH->cache_path = ech_get_cache_filepath(_ECH->conf.data_dir, today, _ECH->conf.price_class,
-                                                _ECH->conf.currency);
+      _ECH->cache_path = ech_get_cache_filepath(_ECH->conf.data_dir, target_day,
+                                                _ECH->conf.price_class, _ECH->conf.currency);
   }
 
   if (!_ECH->cache_path) {
@@ -95,7 +97,7 @@ int ech_update_cache(ECH* _ECH)
       return res;
     }
 
-    res = epjn_update(&_ECH->epjn_spot, _ECH->spot.price_class, today);
+    res = epjn_update(&_ECH->epjn_spot, _ECH->spot.price_class, target_day);
     if (res != 0) {
       LOG_ERROR("epjn_update (%i)", res); // TODO: Logger
       return res;
