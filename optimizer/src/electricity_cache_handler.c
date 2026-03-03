@@ -207,8 +207,9 @@ int ech_write_cache_json(const Electricity_Spots* _Spot, const char* _cache_path
     Electricity_Spot_Price Prices = _Spot->prices[i];
     cJSON* Json_Spot = cJSON_CreateObject();
 
+    time_t time_end_epoch = Prices.time_start + 900;
     const char* time_start = parse_epoch_to_iso_full_datetime_string(&Prices.time_start, 0);
-    const char* time_end = parse_epoch_to_iso_full_datetime_string(&Prices.time_start, 0);
+    const char* time_end = parse_epoch_to_iso_full_datetime_string(&time_end_epoch, 0);
 
     // DEBUG: have to make sure times are correct everywhere, w. timezone n shiet
     // printf("time_start: %s | time_end: %s \r\n", time_start, time_end);
@@ -245,6 +246,8 @@ int ech_read_cache(Electricity_Spots* _Spot, const char* _cache_path)
   const char* cache_str = read_file_to_string(_cache_path);
   if (cache_str == NULL)
     return false;
+
+  printf("CACHE STRING: \n%s\n", cache_str);
 
   /* Parse json, can be switched if cache medium changes */
   if (ech_parse_json(_Spot, cache_str) != 0) {
