@@ -27,12 +27,14 @@ data.calcs.dir=/var/lib/maestro/calcs
 data.type=json
 
 data.spots.currency=SEK
+data.spots.price_class=3
 
 ################ Facility ################
 facility.latitude=59.29306884333855
 facility.longitude=18.081392635403912
 facility.panel.tilt=45
 facility.panel.azimuth=180
+facility.panel.m2_size=5
 
 '
 

@@ -2,7 +2,6 @@
 #include "calculations.h"
 #include "data/electricity_structs.h"
 #include "electricity_cache_handler.h"
-#include "maestromodules/curl.h"
 #include "maestromodules/thread_pool.h"
 #include "maestroutils/config_handler.h"
 #include "maestroutils/error.h"
@@ -72,7 +71,6 @@ int optimizer_init(Optimizer* _O)
 #endif
 
   memset(_O, 0, sizeof(Optimizer));
-  create_directory_if_not_exists(OPTIMIZER_CONF_PATH);
 
   res = optimizer_config_set(&_O->config);
   if (res != 0) {
@@ -85,16 +83,34 @@ int optimizer_init(Optimizer* _O)
 
 int optimizer_config_set(Optimizer_Config* _OC)
 {
-  // TODO: read from conf file, add conf parse util
+  
+  if (_OC->data_dir)
+    free(_OC->data_dir);
+  if (_OC->data_weather_dir)
+    free(_OC->data_weather_dir);
+  if (_OC->data_spots_dir)
+    free(_OC->data_spots_dir);
+  if (_OC->data_calcs_dir)
+    free(_OC->data_calcs_dir);
 
   const char* keys[] = {
-      "sys.max_threads",     "data.spots.currency",    "data.dir",          "data.spots.dir",
-      "data.weather.dir",    "data.calcs.dir",         "facility.latitude", "facility.longitude",
-      "facility.panel.tilt", "facility.panel.azimuth",
+      "sys.max_threads",     
+      "data.spots.currency",    
+      "data.spots.price_class",    
+      "data.dir",          
+      "data.spots.dir",
+      "data.weather.dir",    
+      "data.calcs.dir",         
+      "facility.latitude", 
+      "facility.longitude",
+      "facility.panel.tilt", 
+      "facility.panel.azimuth",
+      "facility.panel.m2_size",
   };
 
   char conf_max_threads[64] = {0};
   char conf_currency[64] = {0};
+  char conf_price_class[64] = {0};
   char conf_data_dir[64] = {0};
   char conf_data_spots_dir[64] = {0};
   char conf_data_weather_dir[64] = {0};
@@ -103,23 +119,42 @@ int optimizer_config_set(Optimizer_Config* _OC)
   char conf_facility_lon[64] = {0};
   char conf_solar_tilt[64] = {0};
   char conf_solar_azimuth[64] = {0};
+  char conf_solar_size[64] = {0};
 
   char* values[] = {
-      conf_max_threads,      conf_currency,       conf_data_dir,     conf_data_spots_dir,
-      conf_data_weather_dir, conf_data_calcs_dir, conf_facility_lat, conf_facility_lon,
-      conf_solar_tilt,       conf_solar_azimuth,
+      conf_max_threads,      
+      conf_currency,
+      conf_price_class, 
+      conf_data_dir,     
+      conf_data_spots_dir,
+      conf_data_weather_dir, 
+      conf_data_calcs_dir, 
+      conf_facility_lat, 
+      conf_facility_lon,
+      conf_solar_tilt,       
+      conf_solar_azimuth,
+      conf_solar_size,
   };
 
-  int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 64, 10);
+  int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 64, 12);
 
   if (res != SUCCESS)
     return res;
+
 
   int max_threads = atoi(conf_max_threads);
   if (max_threads > 0)
     _OC->max_threads = max_threads;
   else
     _OC->max_threads = 1;
+
+  _OC->currency = SPOT_SEK;
+
+  int price_class = atoi(conf_price_class) - 1;
+  if (price_class >= 0 && price_class <= 3)
+    _OC->price_class = price_class;
+  else
+    _OC->price_class = 0;
 
   float lat = atof(conf_facility_lat);
   float lon = atof(conf_facility_lon);
@@ -128,11 +163,10 @@ int optimizer_config_set(Optimizer_Config* _OC)
 
   int panel_tilt = atoi(conf_solar_tilt);
   int panel_azimuth = atoi(conf_solar_azimuth);
+  int panel_size = atoi(conf_solar_size);
   _OC->panel_tilt = (unsigned short)panel_tilt;
   _OC->panel_azimuth = (short)panel_azimuth;
-
-  printf("lat: %s\n", conf_facility_lat);
-  printf("lon: %s\n", conf_facility_lat);
+  _OC->panel_size = (unsigned short)panel_size;
 
   LOG_INFO("max_threads: %i\n", _OC->max_threads);
   LOG_INFO("latitude: %f, longitude %f\n", _OC->longitude, _OC->latitude);
@@ -183,8 +217,6 @@ int optimizer_config_set(Optimizer_Config* _OC)
       return ERR_NO_MEMORY;
     }
   }
-
-  _OC->currency = SPOT_SEK;
 
   return SUCCESS;
 }
@@ -242,7 +274,20 @@ int optimizer_run(Optimizer* _O)
 
   /* run calculator */
 
-  calc_get_average();
+  Calc_Args C_Args = {
+    .calcs_dir = _O->config.data_calcs_dir,
+    .spots_dir = _O->config.data_spots_dir, 
+    .weather_dir = _O->config.data_weather_dir, 
+    .price_class = _O->config.price_class, 
+    .currency = _O->config.currency, 
+    .max_threads = _O->config.max_threads, 
+    .panel_size = (int)_O->config.panel_size,
+  };
+
+  if (calc_create_reports(&C_Args) != SUCCESS) {
+    LOG_ERROR("calc_create_reports");
+    return ERR_FATAL;
+  }
 
   return SUCCESS;
 }
@@ -254,13 +299,13 @@ void optimizer_dispose(Optimizer* _O)
     tp_dispose(_O->thread_pool);
   }
 
-  if (!_O->config.data_dir)
+  if (_O->config.data_dir)
     free(_O->config.data_dir);
-  if (!_O->config.data_calcs_dir)
+  if (_O->config.data_calcs_dir)
     free(_O->config.data_calcs_dir);
-  if (!_O->config.data_weather_dir)
+  if (_O->config.data_weather_dir)
     free(_O->config.data_weather_dir);
-  if (!_O->config.data_spots_dir)
+  if (_O->config.data_spots_dir)
     free(_O->config.data_spots_dir);
 
 #ifdef CURL_GLOBAL_DEFAULT

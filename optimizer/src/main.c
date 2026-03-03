@@ -61,6 +61,7 @@ int main(int _argc, const char** _argv)
       // printf("%s - Shutdown...\n", _argv[0]);
       optimizer_dispose(&Opti);
       global_tls_ca_dispose();
+      log_close();
       exit(SUCCESS);
     } else if (sig_ignore) {
       // Do absolutely nothing

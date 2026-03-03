@@ -20,12 +20,14 @@ typedef struct
   char*          data_calcs_dir;
 
   SpotCurrency   currency;
+  SpotPriceClass price_class;
 
-  float          latitude;         
-  float          longitude;         
+  float          latitude;     
+  float          longitude;     
 
   short          panel_azimuth; // +/- 180
   unsigned short panel_tilt; 
+  unsigned short panel_size;
 
   uint8_t        max_threads;
 

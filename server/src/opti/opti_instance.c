@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <time.h>
 
-#define OPTI_AVERAGE_PATH "/var/lib/maestro/"
+#define OPTI_AVERAGE_PATH "/var/lib/maestro/calcs/"
 
 //-----------------Internal Functions-----------------
 //
@@ -171,7 +171,7 @@ int osi_get_average(Osi_RequestCtx* _ctx)
 
   char full_filename[256];
 
-  int res = snprintf(full_filename, sizeof(full_filename), "%s%s-SP96-SE1.json", OPTI_AVERAGE_PATH,
+  int res = snprintf(full_filename, sizeof(full_filename), "%s%s-SP96-SE3.json", OPTI_AVERAGE_PATH,
                      today);
 
   if (res < 0 || (size_t)res >= sizeof(full_filename)) {
@@ -209,7 +209,7 @@ int osi_get_average_hourly(Osi_RequestCtx* _ctx)
 
   char full_filename[256];
 
-  int res = snprintf(full_filename, sizeof(full_filename), "%s%s-SP24-SE1.json", OPTI_AVERAGE_PATH,
+  int res = snprintf(full_filename, sizeof(full_filename), "%s%s-SP24-SE3.json", OPTI_AVERAGE_PATH,
                      today);
 
   if (res < 0 || (size_t)res >= sizeof(full_filename)) {

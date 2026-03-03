@@ -9,7 +9,21 @@ typedef enum
   BELOW_AVG = 1
 
 } Price_Avg;
-int calc_get_average();
-int print_averages(const Electricity_Spots* s);
+
+typedef struct
+{
+  const char*    calcs_dir;
+  const char*    spots_dir; 
+  const char*    weather_dir; 
+  SpotPriceClass price_class; 
+  SpotCurrency   currency; 
+  int            max_threads; 
+  int            panel_size;
+
+} Calc_Args;
+
+int calc_create_reports(Calc_Args* _Args);
+
+int print_averages(const Electricity_Spots* s, const char* _calcs_dir);
 
 #endif

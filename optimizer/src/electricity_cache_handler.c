@@ -247,8 +247,6 @@ int ech_read_cache(Electricity_Spots* _Spot, const char* _cache_path)
   if (cache_str == NULL)
     return false;
 
-  printf("CACHE STRING: \n%s\n", cache_str);
-
   /* Parse json, can be switched if cache medium changes */
   if (ech_parse_json(_Spot, cache_str) != 0) {
     LOG_ERROR("ech_parse_spot");

@@ -1,11 +1,15 @@
 #include "calculations.h"
+#include "data/electricity_structs.h"
+#include "data/weather_structs.h"
 #include "electricity_cache_handler.h"
+#include "maestroutils/file_utils.h"
 #include <maestroutils/error.h>
 #include <maestroutils/file_logging.h>
+#include <maestromodules/thread_pool.h>
 #include <stdio.h>
 #include <time.h>
-#define BASE_CACHE_PATH "/var/lib/maestro/spots"
-#define AVG_CACHE_PATH "/var/lib/maestro/"
+// #define BASE_CACHE_PATH "/var/lib/maestro/spots"
+// #define AVG_CACHE_PATH "/var/lib/maestro/"
 enum
 {
   INTERVAL_W = 43,
@@ -13,6 +17,14 @@ enum
   DEV_W = 8,
   STATUS_W = 9
 };
+
+typedef struct
+{
+  Calc_Args*         calc_args;
+  Electricity_Spots* spots;
+  Weather*           weather;
+
+} Calc_Thread_Args;
 
 int init_calc_ech(ECH* ech);
 
@@ -31,11 +43,19 @@ double calc_avg(const Electricity_Spots* s)
   return sum / (double)s->price_count;
 }
 
-int print_averages(const Electricity_Spots* s)
+void calc_averages_15min(void* _context)
 {
-  if (!s) {
-    return ERR_INVALID_ARG;
+  if (!_context)
+    return;
+
+  Calc_Thread_Args* Task_Args = (Calc_Thread_Args*)_context;
+  Calc_Args* Calc_Args = Task_Args->calc_args;
+  Electricity_Spots* s = Task_Args->spots;
+
+  if (!s || !Calc_Args || !Calc_Args->calcs_dir) {
+    return;
   }
+
   FILE* f;
   time_t t = time(NULL);
   struct tm tm = *localtime(&t);
@@ -44,20 +64,19 @@ int print_averages(const Electricity_Spots* s)
   strftime(today, sizeof(today), "%Y%m%d", &tm);
 
   char filename_96[128];
-  char filename_24[128];
 
-  int res = snprintf(filename_96, sizeof(filename_96), "%s%s-SP96-SE1.json", AVG_CACHE_PATH, today);
+  int res = snprintf(filename_96, sizeof(filename_96), "%s/%s-SP96-SE%i.json", Calc_Args->calcs_dir, today, Calc_Args->price_class+1);
 
   if (res < 0 || (size_t)res >= sizeof(filename_96)) {
-    printf("Failed to create filename_96");
-    return ERR_NO_MEMORY;
+    LOG_ERROR("Failed to create filename_96");
+    return;
   }
 
   f = fopen(filename_96, "w");
 
   if (!f) {
-    perror("fopen");
-    return ERR_IO;
+    LOG_ERROR("fopen");
+    return;
   }
 
   char start_buf[32];
@@ -110,11 +129,36 @@ int print_averages(const Electricity_Spots* s)
 
   fclose(f);
 
-  res = snprintf(filename_24, sizeof(filename_24), "%s%s-SP24-SE1.json", AVG_CACHE_PATH, today);
+}
+
+void calc_averages_1hour(void* _context)
+{
+  if (!_context)
+    return;
+
+  Calc_Thread_Args* Task_Args = (Calc_Thread_Args*)_context;
+  Calc_Args* Calc_Args = Task_Args->calc_args;
+  Electricity_Spots* s = Task_Args->spots;
+
+  if (!s || !Calc_Args || !Calc_Args->calcs_dir) {
+    return;
+  }
+
+  int res;
+  FILE* f;
+  time_t t = time(NULL);
+  struct tm tm = *localtime(&t);
+
+  char today[11]; // YYYY-MM-DD
+  strftime(today, sizeof(today), "%Y%m%d", &tm);
+
+  char filename_24[128];
+
+  res = snprintf(filename_24, sizeof(filename_24), "%s/%s-SP24-SE%i.json", Calc_Args->calcs_dir, today, Calc_Args->price_class+1);
 
   if (res < 0 || (size_t)res >= sizeof(filename_24)) {
-    printf("Failed to create filename_24");
-    return ERR_NO_MEMORY;
+    LOG_ERROR("Failed to create filename_24");
+    return;
   }
 
   f = fopen(filename_24, "w");
@@ -125,6 +169,8 @@ int print_averages(const Electricity_Spots* s)
     AVG_W = 12,
     DEV_W = 8
   };
+
+  double daily_avg = calc_avg(s);
 
   fprintf(f, "\n================ HOURLY AVERAGES =====================\n");
   fprintf(f, "Daily Average: %.4f\n", daily_avg);
@@ -164,36 +210,68 @@ int print_averages(const Electricity_Spots* s)
   fprintf(f, "------------------------------------------------------\n\n");
 
   fclose(f);
-  return 0;
 }
 
-int calc_get_average(void)
+int calc_create_reports(Calc_Args* _Args)
 {
+  if (!_Args->calcs_dir || !_Args->spots_dir || !_Args->weather_dir)
+    return ERR_INVALID_ARG;
 
-  ECH_Conf* conf = malloc(sizeof(ECH_Conf));
-  conf->currency = SPOT_SEK;
-  conf->data_dir = "/var/lib/maestro/spots";
-  conf->price_class = SE1;
+  create_directory_if_not_exists(_Args->calcs_dir);
 
-  ECH* ech = malloc(sizeof(ECH));
-  if (!ech) {
-    return ERR_NO_MEMORY;
+  if (_Args->max_threads < 1)
+    _Args->max_threads = 1;
+
+  int res;
+
+  // printf("Panel size: %i, Currency; %i, Price class: %i, max threads: %i\n", _panel_size, _Currency, _PriceClass, _max_threads);
+  // printf("calcs dir: %s, spots dir: %s, weather dir: %s\n", _calcs_dir, _spots_dir, _weather_dir);
+
+  Calc_Thread_Args Thread_Args = {0};
+  Thread_Args.calc_args = _Args;
+
+  Thread_Pool* TP = tp_init(_Args->max_threads);
+  if (!TP) {
+    LOG_ERROR("tp_init"); // TODO: Logger
+    return ERR_FATAL;
   }
-  ech->conf = *conf;
 
-  init_calc_ech(ech);
+  ECH_Conf conf = {0};
+  ECH_Conf* conf_ptr = &conf;
+  conf_ptr->currency = _Args->currency;
+  conf_ptr->data_dir = _Args->spots_dir;
+  conf_ptr->price_class = _Args->price_class;
 
-  printf("Ech cache path in calc: %s\n", ech->cache_path);
+  ECH ech = {0};
+  ech.conf = conf;
+  ECH* ech_ptr = &ech;
 
-  int res = ech_read_cache(&ech->spot, ech->cache_path);
+  init_calc_ech(&ech);
+
+  res = ech_read_cache(&ech_ptr->spot, ech_ptr->cache_path);
   if (res != 0) {
     LOG_ERROR("ech_read_cache (%i)", res); // TODO: Logger
+    ech_dispose(ech_ptr);
     return res;
   }
 
-  print_averages(&ech->spot);
+  Thread_Args.spots = &ech_ptr->spot;
 
-  ech_dispose(ech);
+  TP_Task Avg_Q_Task = {calc_averages_15min, &Thread_Args, NULL, NULL};
+  TP_Task Avg_H_Task = {calc_averages_1hour, &Thread_Args, NULL, NULL};
+
+  res = tp_task_add(TP, &Avg_H_Task);
+  if (res != 0)
+    LOG_ERROR("tp_task_add"); // TODO: Logger
+
+  res = tp_task_add(TP, &Avg_Q_Task);
+  if (res != 0)
+    LOG_ERROR("tp_task_add"); // TODO: Logger
+
+  tp_wait(TP);
+  tp_dispose(TP);
+
+  ech_dispose(ech_ptr);
 
   return 0;
 }
@@ -211,8 +289,6 @@ int init_calc_ech(ECH* ech)
   ech->spot.currency = ech->conf.currency;
 
   time_t today = epoch_now_day();
-
-  printf("Ech->conf-data-dir: %s\n", ech->conf.data_dir);
 
   ech->cache_path =
       ech_get_cache_filepath(ech->conf.data_dir, today, ech->conf.price_class, ech->conf.currency);
