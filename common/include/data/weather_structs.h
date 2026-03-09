@@ -45,8 +45,8 @@ typedef struct
   unsigned int    count;
   unsigned int    update_interval; // minutes between values
   
-  // unsigned short  panel_azimuth; 
-  // unsigned short  panel_tilt;
+  unsigned short  panel_azimuth; 
+  unsigned short  panel_tilt;
 
   char            sun_duration_unit;
 

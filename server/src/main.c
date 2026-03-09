@@ -3,6 +3,18 @@
 #include <maestromodules/scheduler.h>
 #include <maestroutils/signal_handler.h>
 
+//-----------------Temporary function to trigger optimizer fetch-----------------
+#define OPTI_PIDFILE "/var/run/maestro-optimizer.pid"
+
+static void trigger_optimizer(void)
+{
+  int res = system("pkill -USR1 optimizer");
+
+  if (res != 0) {
+    printf("trigger: pkill failed (%d)\n", res);
+  }
+}
+
 volatile sig_atomic_t stop = 0;
 Opti_Server Server;
 
@@ -22,7 +34,7 @@ void handle_sigint(int sig)
 
 int main(void)
 {
-
+  trigger_optimizer();
   scheduler_init();
   opti_s_init(&Server);
 

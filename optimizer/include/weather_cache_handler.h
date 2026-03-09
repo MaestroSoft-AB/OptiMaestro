@@ -7,30 +7,37 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define WCH_BASE_CACHE_PATH_FALLBACK "/var/lib/maestro/weather"
+
 /* ======================== STRUCTS ======================== */
 
 typedef struct
 {
-  float latitude;
-  float longitude;
+  const char*  data_dir;
+  float        latitude;
+  float        longitude;
 
-  bool  forecast;
+  int          panel_tilt;
+  unsigned int panel_azimuth;
+
+  bool         forecast;
 
 } WCH_Conf;
 
 typedef struct
 {
-  Weather       weather;
+  Weather     weather;
+  WCH_Conf    conf;
 
-  const char*   cache_path;
+  const char* data_path;
 
 } WCH; // Weather Cache Handler
 
 /* ======================= INTERFACE ======================= */
 
-int wch_init(WCH* _WCH);
+int wch_init(WCH* _WCH, const WCH_Conf* _Conf);
 
-int wch_update_cache(WCH* _WCH, const WCH_Conf* _Conf);
+int wch_update_cache(WCH* _WCH);
 
 int wch_write_cache(const Weather* _W, const char* _cache_path);
 int wch_read_cache(Weather* _W, const char* _cache_path);

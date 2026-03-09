@@ -10,28 +10,33 @@
 
 typedef struct
 {
-  SpotPriceClass  price_class;
-  SpotCurrency    currency;
+  const char* data_dir;
+
+  SpotPriceClass price_class;
+  SpotCurrency currency;
 
 } ECH_Conf;
 
 typedef struct
 {
-  Electricity_Spots   spot;  
-  EPJN_Spots          epjn_spot;
+  Electricity_Spots spot;
+  EPJN_Spots epjn_spot;
+  ECH_Conf conf;
 
-  const char*         cache_path;
+  char* cache_path;
 
 } ECH; // Electricity Cache Handler
 
 /* ======================= INTERFACE ======================= */
 
-int ech_init(ECH* _ECH);
+int ech_init(ECH* _ECH, const ECH_Conf* _Conf);
 
-int ech_update_cache(ECH* _ECH, const ECH_Conf* _Conf);
+int ech_update_cache(ECH* _ECH);
 
 int ech_write_cache_json(const Electricity_Spots* _Spot, const char* _cache_path);
 int ech_read_cache(Electricity_Spots* _Spot, const char* _cache_path);
+char* ech_get_cache_filepath(const char* _base_path, const time_t _start,
+                             const SpotPriceClass _price_class, const SpotCurrency _currency);
 
 void ech_dispose(ECH* _ECH_Ptr);
 

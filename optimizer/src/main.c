@@ -3,8 +3,8 @@
 #include "maestroutils/error.h"
 #include "maestroutils/signal_handler.h"
 #include "optimizer.h"
-#include <maestroutils/file_logging.h>
 #include <maestromodules/tls_global_ca.h>
+#include <maestroutils/file_logging.h>
 #include <time.h>
 
 #define OPTIMIZER_LOG_PATH "/var/log/maestro.log"
@@ -42,13 +42,13 @@ int main(int _argc, const char** _argv)
   LOG_INFO("%s - Started", _argv[0]);
 
   if (global_tls_ca_init() != SUCCESS) {
-    LOG_ERROR("global_tls_ca_init");
+    LOG_INFO("global_tls_ca_init");
     exit(1);
   }
 
   Optimizer Opti;
   if (optimizer_init(&Opti) != SUCCESS) {
-    LOG_ERROR("optimizer_init");
+    LOG_INFO("optimizer_init");
     exit(1);
   }
 
@@ -61,6 +61,7 @@ int main(int _argc, const char** _argv)
       // printf("%s - Shutdown...\n", _argv[0]);
       optimizer_dispose(&Opti);
       global_tls_ca_dispose();
+      log_close();
       exit(SUCCESS);
     } else if (sig_ignore) {
       // Do absolutely nothing
@@ -73,7 +74,7 @@ int main(int _argc, const char** _argv)
       sig_new_data = 0;
     } else if (sig_update_config) {
       printf("%s - Update config...\n", _argv[0]);
-      optimizer_config_set(&Opti);
+      optimizer_config_set(&Opti.config);
       sig_update_config = 0;
     }
 

@@ -5,8 +5,8 @@
 
 
 // Needs (lat, lon, query)
-#define METEO_BASE_URL "http://api.open-meteo.com/v1/forecast"                       \
-  "?latitude=%f&longitude=%f&%s&timezone=GMT"
+#define METEO_BASE_URL "http://api.open-meteo.com/v1/forecast" \
+  "?latitude=%f&longitude=%f&timezone=GMT&azimuth=%f&tilt=%f&%s"
 
 #define METEO_CURRENT_QUERY "current=shortwave_radiation,direct_radiation,"          \
   "diffuse_radiation,direct_normal_irradiance,global_tilted_irradiance,"             \
@@ -28,23 +28,29 @@
   "&forecast_minutely_15=96&past_minutely_15=96"
 
 #define METEO_GTR_QUERY "current=global_tilted_irradiance_instant,"                  \
-                        "global_tilted_irradiance&azimuth=%d&tilt=%d"
+                        "global_tilted_irradiance&azimuth=%f&tilt=%f"
 
 
 /* passed Weather struct should be allocated and nulled */
 int meteo_get_hourly(Weather* _Weather, 
                      float    _lat,
                      float    _lon,
+                     float    _panel_azimuth,
+                     float    _panel_tilt,
                      time_t   _start_date, 
                      time_t   _end_date);
 
 int meteo_get_15_minutely(Weather* _Weather,
                          float    _lat,
-                         float    _lon);
+                         float    _lon,
+                         float    _panel_azimuth,
+                         float    _panel_tilt);
 
 int meteo_get_current(Weather* _Weather,
                       float    _lat,
-                      float    _lon);
+                      float    _lon,
+                      float    _panel_azimuth,
+                      float    _panel_tilt);
 
 #endif
 
