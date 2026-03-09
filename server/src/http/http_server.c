@@ -20,20 +20,17 @@ int http_server_init(HTTP_Server* _HTTPServer, http_server_on_connection _Callba
     return ERR_INVALID_ARG;
   }
 
-  /* Default port (previous behavior) */
-  snprintf(_HTTPServer->port, sizeof(_HTTPServer->port), "%s", "10580");
-
   /* Prefer http.port from config if present.
      When started via server/Makefile, CWD is typically server/, so this resolves to server/config/system.conf. */
   {
-    const char* keys[] = {"http.port"};
-    char port_buf[16] = {0};
-    char* values[] = {port_buf};
-    if (config_get_value("config/system.conf", keys, values, sizeof(port_buf), 1) == 0) {
-      if (port_buf[0] != 0) {
-        snprintf(_HTTPServer->port, sizeof(_HTTPServer->port), "%s", port_buf);
-      }
+    snprintf(_HTTPServer->port, sizeof(_HTTPServer->port), "%s", "10580");
+
+    config_handler_t* cfg = NULL;
+    if (config_handler_load(&cfg, "config/system.conf") == 0) {
+      const char* port = config_handler_get_default(cfg, "http.port", "10580");
+      snprintf(_HTTPServer->port, sizeof(_HTTPServer->port), "%s", port);
     }
+    config_handler_free(cfg);
   }
 
   _HTTPServer->context = _ContextServer;

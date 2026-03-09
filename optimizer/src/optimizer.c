@@ -10,6 +10,7 @@
 
 #include <pthread.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* --------------------- Internal declarations --------------------- */
@@ -83,7 +84,10 @@ int optimizer_init(Optimizer* _O)
 
 int optimizer_config_set(Optimizer_Config* _OC)
 {
-  
+  if (!_OC) {
+    return ERR_INVALID_ARG;
+  }
+
   if (_OC->data_dir)
     free(_OC->data_dir);
   if (_OC->data_weather_dir)
@@ -93,56 +97,40 @@ int optimizer_config_set(Optimizer_Config* _OC)
   if (_OC->data_calcs_dir)
     free(_OC->data_calcs_dir);
 
-  const char* keys[] = {
-      "sys.max_threads",     
-      "data.spots.currency",    
-      "data.spots.price_class",    
-      "data.dir",          
+  config_handler_t* cfg = NULL;
+  int res = config_handler_load(&cfg, OPTIMIZER_CONF_PATH);
+  if (res != 0) {
+    config_handler_free(cfg);
+    return res;
+  }
+
+  /* Keep old behavior: require these keys to exist */
+  const char* required_keys[] = {
+      "sys.max_threads",
+      "data.spots.currency",
+      "data.spots.price_class",
+      "data.dir",
       "data.spots.dir",
-      "data.weather.dir",    
-      "data.calcs.dir",         
-      "facility.latitude", 
+      "data.weather.dir",
+      "data.calcs.dir",
+      "facility.latitude",
       "facility.longitude",
-      "facility.panel.tilt", 
+      "facility.panel.tilt",
       "facility.panel.azimuth",
       "facility.panel.m2_size",
   };
+  for (size_t i = 0; i < sizeof(required_keys) / sizeof(required_keys[0]); i++) {
+    if (config_handler_get(cfg, required_keys[i]) == NULL) {
+      config_handler_free(cfg);
+      return -2;
+    }
+  }
 
-  char conf_max_threads[64] = {0};
-  char conf_currency[64] = {0};
-  char conf_price_class[64] = {0};
-  char conf_data_dir[64] = {0};
-  char conf_data_spots_dir[64] = {0};
-  char conf_data_weather_dir[64] = {0};
-  char conf_data_calcs_dir[64] = {0};
-  char conf_facility_lat[64] = {0};
-  char conf_facility_lon[64] = {0};
-  char conf_solar_tilt[64] = {0};
-  char conf_solar_azimuth[64] = {0};
-  char conf_solar_size[64] = {0};
-
-  char* values[] = {
-      conf_max_threads,      
-      conf_currency,
-      conf_price_class, 
-      conf_data_dir,     
-      conf_data_spots_dir,
-      conf_data_weather_dir, 
-      conf_data_calcs_dir, 
-      conf_facility_lat, 
-      conf_facility_lon,
-      conf_solar_tilt,       
-      conf_solar_azimuth,
-      conf_solar_size,
-  };
-
-  int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 64, 12);
-
-  if (res != SUCCESS)
-    return res;
-
-
-  int max_threads = atoi(conf_max_threads);
+  int max_threads = 1;
+  if (config_handler_get_int_default(cfg, "sys.max_threads", 1, &max_threads) < 0) {
+    config_handler_free(cfg);
+    return ERR_INVALID_ARG;
+  }
   if (max_threads > 0)
     _OC->max_threads = max_threads;
   else
@@ -150,20 +138,39 @@ int optimizer_config_set(Optimizer_Config* _OC)
 
   _OC->currency = SPOT_SEK;
 
-  int price_class = atoi(conf_price_class) - 1;
+  int price_class_conf = 1;
+  if (config_handler_get_int_default(cfg, "data.spots.price_class", 1, &price_class_conf) < 0) {
+    config_handler_free(cfg);
+    return ERR_INVALID_ARG;
+  }
+
+  int price_class = price_class_conf - 1;
   if (price_class >= 0 && price_class <= 3)
     _OC->price_class = price_class;
   else
     _OC->price_class = 0;
 
-  float lat = atof(conf_facility_lat);
-  float lon = atof(conf_facility_lon);
-  _OC->latitude = lat;
-  _OC->longitude = lon;
+  {
+    double lat = 0.0;
+    double lon = 0.0;
+    if (config_handler_get_double_default(cfg, "facility.latitude", 0.0, &lat) < 0 ||
+        config_handler_get_double_default(cfg, "facility.longitude", 0.0, &lon) < 0) {
+      config_handler_free(cfg);
+      return ERR_INVALID_ARG;
+    }
+    _OC->latitude = (float)lat;
+    _OC->longitude = (float)lon;
+  }
 
-  int panel_tilt = atoi(conf_solar_tilt);
-  int panel_azimuth = atoi(conf_solar_azimuth);
-  int panel_size = atoi(conf_solar_size);
+  int panel_tilt = 0;
+  int panel_azimuth = 0;
+  int panel_size = 0;
+  if (config_handler_get_int_default(cfg, "facility.panel.tilt", 0, &panel_tilt) < 0 ||
+      config_handler_get_int_default(cfg, "facility.panel.azimuth", 0, &panel_azimuth) < 0 ||
+      config_handler_get_int_default(cfg, "facility.panel.m2_size", 0, &panel_size) < 0) {
+    config_handler_free(cfg);
+    return ERR_INVALID_ARG;
+  }
   _OC->panel_tilt = (unsigned short)panel_tilt;
   _OC->panel_azimuth = (short)panel_azimuth;
   _OC->panel_size = (unsigned short)panel_size;
@@ -177,46 +184,60 @@ int optimizer_config_set(Optimizer_Config* _OC)
 
   /* THESE DO NOT WORK, END UP NULL... */
   size_t path_len;
+
+  const char* conf_data_dir = config_handler_get_default(cfg, "data.dir", "");
   if (strcmp(conf_data_dir, "") != 0) {
     path_len = strlen(conf_data_dir);
     _OC->data_dir = malloc(path_len + 1);
-    memcpy(_OC->data_dir, conf_data_dir, path_len);
-    _OC->data_dir[path_len] = '\0';
     if (!_OC->data_dir) {
       LOG_ERROR("malloc");
+      config_handler_free(cfg);
       return ERR_NO_MEMORY;
     }
+    memcpy(_OC->data_dir, conf_data_dir, path_len);
+    _OC->data_dir[path_len] = '\0';
   }
+
+  const char* conf_data_spots_dir = config_handler_get_default(cfg, "data.spots.dir", "");
   if (strcmp(conf_data_spots_dir, "") != 0) {
     path_len = strlen(conf_data_spots_dir);
     _OC->data_spots_dir = malloc(path_len + 1);
-    memcpy(_OC->data_spots_dir, conf_data_spots_dir, path_len);
-    _OC->data_spots_dir[path_len] = '\0';
     if (!_OC->data_spots_dir) {
       LOG_ERROR("malloc");
+      config_handler_free(cfg);
       return ERR_NO_MEMORY;
     }
+    memcpy(_OC->data_spots_dir, conf_data_spots_dir, path_len);
+    _OC->data_spots_dir[path_len] = '\0';
   }
+
+  const char* conf_data_weather_dir = config_handler_get_default(cfg, "data.weather.dir", "");
   if (strcmp(conf_data_weather_dir, "") != 0) {
     path_len = strlen(conf_data_weather_dir);
     _OC->data_weather_dir = malloc(path_len + 1);
-    memcpy(_OC->data_weather_dir, conf_data_weather_dir, path_len);
-    _OC->data_weather_dir[path_len] = '\0';
     if (!_OC->data_weather_dir) {
       LOG_ERROR("malloc");
+      config_handler_free(cfg);
       return ERR_NO_MEMORY;
     }
+    memcpy(_OC->data_weather_dir, conf_data_weather_dir, path_len);
+    _OC->data_weather_dir[path_len] = '\0';
   }
+
+  const char* conf_data_calcs_dir = config_handler_get_default(cfg, "data.calcs.dir", "");
   if (strcmp(conf_data_calcs_dir, "") != 0) {
     path_len = strlen(conf_data_calcs_dir);
     _OC->data_calcs_dir = malloc(path_len + 1);
-    memcpy(_OC->data_calcs_dir, conf_data_calcs_dir, path_len);
-    _OC->data_calcs_dir[path_len] = '\0';
     if (!_OC->data_calcs_dir) {
       LOG_ERROR("malloc");
+      config_handler_free(cfg);
       return ERR_NO_MEMORY;
     }
+    memcpy(_OC->data_calcs_dir, conf_data_calcs_dir, path_len);
+    _OC->data_calcs_dir[path_len] = '\0';
   }
+
+  config_handler_free(cfg);
 
   return SUCCESS;
 }

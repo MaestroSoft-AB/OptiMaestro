@@ -66,7 +66,36 @@ If you need stronger rules (ranges, allowed enums, required keys), enforce them 
 
 ## 3) Reading config values in C
 
-The API reads multiple keys in one call:
+There are two layers:
+
+- **High-level (recommended):** load the file once using `config_handler_load()` and read values with `config_handler_get_*()`.
+- **Low-level:** `config_get_value()` reads multiple keys in one call using caller-provided buffers.
+
+### High-level API (recommended)
+
+```c
+#include <maestroutils/config_handler.h>
+
+config_handler_t* cfg = NULL;
+if (config_handler_load(&cfg, "config/system.conf") != 0) {
+  /* handle file open/read error */
+}
+
+/* Strings with defaults */
+const char* port = config_handler_get_default(cfg, "http.port", "10580");
+
+/* Typed with defaults */
+int threads = 0;
+if (config_handler_get_int_default(cfg, "worker.threads", 4, &threads) < 0) {
+  /* handle invalid value format */
+}
+
+config_handler_free(cfg);
+```
+
+### Low-level API (bulk read)
+
+The low-level API reads multiple keys in one call:
 
 ```c
 int config_get_value(const char* config_path,
@@ -82,19 +111,31 @@ Return codes:
 - `-1`: file open/read error
 - `-2`: missing key(s) or invalid arguments
 
-### Example: read one key with a default
+### Example: read one key with a default (high-level)
+
+```c
+config_handler_t* cfg = NULL;
+char port[16] = {0};
+
+if (config_handler_load(&cfg, "config/system.conf") != 0) {
+  snprintf(port, sizeof(port), "%s", "10580");
+} else {
+  snprintf(port, sizeof(port), "%s", config_handler_get_default(cfg, "http.port", "10580"));
+}
+
+config_handler_free(cfg);
+```
+
+### Example: read one key (low-level)
 
 ```c
 const char* keys[] = {"http.port"};
 char port_buf[16] = {0};
 char* values[] = {port_buf};
 
-snprintf(port, sizeof(port), "%s", "10580"); /* default */
-
-if (config_get_value("config/system.conf", keys, values, sizeof(port_buf), 1) == 0) {
-  if (port_buf[0] != 0) {
-    snprintf(port, sizeof(port), "%s", port_buf);
-  }
+int rc = config_get_value("config/system.conf", keys, values, sizeof(port_buf), 1);
+if (rc != 0) {
+  /* handle missing keys / file error */
 }
 ```
 
