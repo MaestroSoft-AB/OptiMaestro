@@ -212,6 +212,90 @@ void calc_averages_1hour(void* _context)
   fclose(f);
 }
 
+void calc_averages_1hour_solar(void* _context)
+{
+  if (!_context)
+    return;
+
+  Calc_Thread_Args* Task_Args = (Calc_Thread_Args*)_context;
+  Calc_Args* Calc_Args = Task_Args->calc_args;
+  Electricity_Spots* S = Task_Args->spots;
+  Weather* W = Task_Args->weather;
+
+  if (!S || !W || !Calc_Args || !Calc_Args->calcs_dir) {
+    return;
+  }
+
+  int res;
+  FILE* f;
+  time_t t = time(NULL);
+  struct tm tm = *localtime(&t);
+
+  char today[11]; // YYYY-MM-DD
+  strftime(today, sizeof(today), "%Y%m%d", &tm);
+
+  char filename_24[128];
+
+  res = snprintf(filename_24, sizeof(filename_24), "%s/%s-SP24-SE-Solar%i.json", Calc_Args->calcs_dir, today, Calc_Args->price_class+1);
+
+  if (res < 0 || (size_t)res >= sizeof(filename_24)) {
+    LOG_ERROR("Failed to create filename_24");
+    return;
+  }
+
+  f = fopen(filename_24, "w");
+
+  enum
+  {
+    TIME_W = 19,
+    AVG_W = 12,
+    DEV_W = 8
+  };
+
+  double daily_avg = calc_avg(S);
+  double daily_solar_avg = calc_avg(W);
+
+  fprintf(f, "\n================ HOURLY AVERAGES =====================\n");
+  fprintf(f, "Daily Average: %.4f\n", daily_avg);
+
+  fprintf(f, "------------------------------------------------------\n");
+  fprintf(f, "%-*s | %*s | %*s\n", TIME_W, "Hour starting", AVG_W, "Hour Avg", DEV_W, "Dev %");
+  fprintf(f, "------------------------------------------------------\n");
+
+  for (int i = 0; i < S->price_count; i += 4) {
+
+    double hour_sum = 0.0;
+    int count = 0;
+
+    for (int j = 0; j < 4 && (i + j) < S->price_count; j++) {
+      hour_sum += S->prices[i + j].spot_price;
+      count++;
+    }
+
+    double hour_avg = hour_sum / count;
+    double deviation = ((hour_avg - daily_avg) / daily_avg) * 100.0;
+
+    char start_buf[20];
+    struct tm tm_start;
+    struct tm* tmp;
+
+    tmp = localtime(&S->prices[i].time_start);
+    if (tmp)
+      tm_start = *tmp;
+
+    strftime(start_buf, sizeof(start_buf), "%Y-%m-%d %H:%M:%S", &tm_start);
+
+    fprintf(f, "%-*s | %*.3f SEK | %+*.2f\n", TIME_W, start_buf, AVG_W - 4,
+            hour_avg, /* -4 för " SEK" */
+            DEV_W, deviation);
+  }
+
+  fprintf(f, "------------------------------------------------------\n\n");
+
+  fclose(f);
+
+}
+
 int calc_create_reports(Calc_Args* _Args)
 {
   if (!_Args->calcs_dir || !_Args->spots_dir || !_Args->weather_dir)
