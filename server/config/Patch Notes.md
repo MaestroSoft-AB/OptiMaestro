@@ -126,9 +126,4 @@ Reduce boilerplate when reading `key=value` config files so call sites don’t h
 - Makes it clear which API is preferred and why.
 - Preserves the low-level documentation for existing code and for bulk reads.
 
-## Notes / Repo State
 
-- `external/MaestroCore` is treated as a submodule/gitlink by the parent repo, so the parent shows it as “dirty” when you modify files inside it.
-- If you want these changes recorded properly, you typically need:
-  1) commit inside `external/MaestroCore`
-  2) then commit the parent repo so it updates the submodule pointer
