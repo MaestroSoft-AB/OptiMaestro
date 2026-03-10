@@ -52,10 +52,13 @@ int main(int _argc, const char** _argv)
     exit(1);
   }
 
+  time_t now = time(NULL);
+  time_t next_run = ((now / 900) + 1) * 900;
+
   signal_handlers_install(sigc, Signals);
   /* Process handler, handle signals */
   while (1) {
-    /* TODO: Switch out printf statements for logger functions */
+    now = time(NULL);
     if (sig_exit) {
       LOG_INFO("%s - Shutting down", _argv[0]);
       // printf("%s - Shutdown...\n", _argv[0]);
@@ -75,6 +78,11 @@ int main(int _argc, const char** _argv)
       printf("%s - Update config...\n", _argv[0]);
       optimizer_config_set(&Opti.config);
       sig_update_config = 0;
+    } else if (now >= next_run) {
+      LOG_INFO("%s - Get new cache and calculations...\n", _argv[0]);
+      optimizer_run(&Opti);
+      sig_new_data = 0;
+      next_run += 900;
     }
 
     nanosleep(&req, NULL);
