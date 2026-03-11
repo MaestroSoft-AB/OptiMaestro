@@ -15,9 +15,9 @@
 
 /* --------------------------- Internal --------------------------- */
 
-const char* wch_get_cache_filepath(const char* _base_path,
+/* const char* wch_get_cache_filepath(const char* _base_path,
                                    time_t      _start_date,
-                                   bool        _forecast);
+                                   bool        _forecast); */
 
 int wch_validate_cache(const char* _cache_path);
 
@@ -243,24 +243,108 @@ int wch_write_cache_json(const Weather* _Weather, const char* _cache_path)
   return SUCCESS;
 }
 
+int wch_read_cache_json(Weather* _W, const char* _cache_path)
+{
+  if (!_W || !_cache_path)
+    return ERR_INVALID_ARG;
+
+  char* json_str = read_file_to_string(_cache_path);
+  if (json_str == NULL)
+    return ERR_FATAL;
+
+  cJSON* Json_Root = cJSON_Parse(json_str);
+  if (Json_Root == NULL) {
+    const char* err = cJSON_GetErrorPtr();
+    if (err != NULL)
+      LOG_ERROR("cJSON: %s\n", err);
+    free(json_str);
+    return ERR_JSON_PARSE;
+  }
+
+  if (!cJSON_IsObject(Json_Root)) {
+    LOG_ERROR("cJSON: root is not an object\n");
+    cJSON_Delete(Json_Root);
+    free(json_str);
+    return ERR_JSON_PARSE;
+  }
+
+  cJSON* Json_Meta = cJSON_GetObjectItemCaseSensitive(Json_Root, "meta");
+  if (Json_Meta && cJSON_IsObject(Json_Meta)) {
+    _W->update_interval    = json_get_int(Json_Meta, "interval_minutes");
+    _W->latitude           = json_get_double(Json_Meta, "latitude");
+    _W->longitude          = json_get_double(Json_Meta, "longitude");
+    _W->panel_azimuth      = json_get_double(Json_Meta, "solar_panel_azimuth");
+    _W->panel_tilt         = json_get_double(Json_Meta, "solar_panel_tilt");
+
+    _W->temperature_unit   = strdup(json_get_string(Json_Meta, "temperature_unit"));
+    _W->windspeed_unit     = strdup(json_get_string(Json_Meta, "windspeed_unit"));
+    _W->precipitation_unit = strdup(json_get_string(Json_Meta, "precipitation_unit"));
+    _W->winddirection_unit = strdup(json_get_string(Json_Meta, "winddirection_unit"));
+    _W->radiation_unit     = strdup(json_get_string(Json_Meta, "radiation_unit"));
+  }
+
+  cJSON* Json_Values = cJSON_GetObjectItemCaseSensitive(Json_Root, "values");
+  if (cJSON_IsArray(Json_Values)) {
+    unsigned int count = (unsigned int)cJSON_GetArraySize(Json_Values);
+    _W->count = count;
+
+    for (unsigned int i = 0; i < count; ++i) {
+      cJSON* Json_Object = cJSON_GetArrayItem(Json_Values, i);
+      if (!cJSON_IsObject(Json_Object)) continue;
+
+      Weather_Values Vals;
+      memset(&Vals, 0, sizeof(Vals));
+
+      const char* timestamp_str = json_get_string(Json_Object, "timestamp");
+      if (timestamp_str && strcmp(timestamp_str, "Unknown") != 0)
+        Vals.timestamp = parse_iso_full_datetime_string_to_epoch(timestamp_str);
+
+      Vals.temperature           = json_get_double(Json_Object, "temperature");
+      Vals.windspeed             = json_get_double(Json_Object, "windspeed");
+      Vals.winddirection_azimuth = json_get_double(Json_Object, "winddirection");
+      Vals.precipitation         = json_get_double(Json_Object, "precipitation");
+      Vals.radiation_direct      = json_get_double(Json_Object, "radiation_direct");
+      Vals.radiation_direct_n    = json_get_double(Json_Object, "radiation_direct_n");
+      Vals.radiation_diffuse     = json_get_double(Json_Object, "radiation_diffuse");
+      Vals.radiation_shortwave   = json_get_double(Json_Object, "radiation_shortwave");
+      Vals.radiation_tilted      = json_get_double(Json_Object, "radiation_tilted");
+      Vals.sun_duration          = json_get_double(Json_Object, "sun_duration");
+
+      _W->values[i] = Vals;
+    }
+  }
+
+  cJSON_Delete(Json_Root);
+  free(json_str);
+
+  return SUCCESS;
+}
+
+void wch_weather_dispose(Weather* _W)
+{
+  if (_W != NULL) {
+    if (_W->temperature_unit    != NULL)
+      free((void*)_W->temperature_unit);
+    if (_W->windspeed_unit      != NULL)
+      free((void*)_W->windspeed_unit);
+    if (_W->precipitation_unit  != NULL)
+      free((void*)_W->precipitation_unit);
+    if (_W->winddirection_unit  != NULL)
+      free((void*)_W->winddirection_unit);
+    if (_W->radiation_unit      != NULL)
+      free((void*)_W->radiation_unit);
+
+    if (_W->values != NULL)
+      free(_W->values);
+  }
+}
+
 void wch_dispose(WCH* _WCH)
 {
   if (_WCH->data_path != NULL)
     free((void*)_WCH->data_path);
 
-  if (_WCH->weather.temperature_unit    != NULL)
-    free((void*)_WCH->weather.temperature_unit);
-  if (_WCH->weather.windspeed_unit      != NULL)
-    free((void*)_WCH->weather.windspeed_unit);
-  if (_WCH->weather.precipitation_unit  != NULL)
-    free((void*)_WCH->weather.precipitation_unit);
-  if (_WCH->weather.winddirection_unit  != NULL)
-    free((void*)_WCH->weather.winddirection_unit);
-  if (_WCH->weather.radiation_unit      != NULL)
-    free((void*)_WCH->weather.radiation_unit);
-
-  if (_WCH->weather.values != NULL)
-    free(_WCH->weather.values);
+  wch_weather_dispose(&_WCH->weather);
 
   memset(_WCH, 0, sizeof(WCH));
 

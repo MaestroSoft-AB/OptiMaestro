@@ -36,8 +36,8 @@ typedef struct
   const char*             unit;         // e.g "SEK/kWh"
   SpotCurrency            currency;
   SpotPriceClass          price_class;  // 1-4, i.e SE1, SE2 etc.
-  int                     price_count;
-  int                     interval;     // minutes between spots
+  unsigned int            price_count;
+  unsigned int            interval;     // minutes between spots
 
 } Electricity_Spots;
 
