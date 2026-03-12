@@ -66,7 +66,7 @@ int ech_update_cache(ECH* _ECH)
 
   int update_hour = 13; // Now the question is what time(s) ech should be run..
   if (time_is_at_or_after_hour(update_hour)) {
-    target_day = tmrw;
+    // target_day = tmrw;
     if (!_ECH->conf.data_dir)
       _ECH->cache_path = ech_get_cache_filepath(ECH_BASE_CACHE_PATH_FALLBACK, target_day,
                                                 _ECH->conf.price_class, _ECH->conf.currency);

@@ -71,10 +71,10 @@ int wch_update_cache(WCH* _WCH)
   time_t now = time(NULL);
 
   if (!_WCH->conf.data_dir)  // fallback data dir
-    _WCH->data_path = wch_get_cache_filepath(WCH_BASE_CACHE_PATH_FALLBACK, 
+    _WCH->data_path = wch_get_cache_json_filepath(WCH_BASE_CACHE_PATH_FALLBACK, 
         now, _WCH->conf.forecast);
   else
-    _WCH->data_path = wch_get_cache_filepath(_WCH->conf.data_dir, 
+    _WCH->data_path = wch_get_cache_json_filepath(_WCH->conf.data_dir, 
         now, _WCH->conf.forecast);
   
   if (!_WCH->data_path) {
@@ -124,9 +124,9 @@ int wch_update_cache(WCH* _WCH)
 
 /* Define and return the cache path from given parameters */
 /* TODO: create recursive directories for year/month */
-const char* wch_get_cache_filepath(const char*    _base_path,
-                                   time_t         _start_date,
-                                   bool           _forecast)
+char* wch_get_cache_json_filepath(const char*    _base_path,
+                             time_t         _start_date,
+                             bool           _forecast)
 {
   char path_buf[512];
 
@@ -287,6 +287,15 @@ int wch_read_cache_json(Weather* _W, const char* _cache_path)
   if (cJSON_IsArray(Json_Values)) {
     unsigned int count = (unsigned int)cJSON_GetArraySize(Json_Values);
     _W->count = count;
+
+    if (_W->values != NULL)
+      free(_W->values); // free if still allocated
+
+    _W->values = calloc(1, (sizeof(Weather_Values) * count));
+    if (!_W->values) {
+      LOG_ERROR("calloc");
+      return ERR_NO_MEMORY;
+    }
 
     for (unsigned int i = 0; i < count; ++i) {
       cJSON* Json_Object = cJSON_GetArrayItem(Json_Values, i);
