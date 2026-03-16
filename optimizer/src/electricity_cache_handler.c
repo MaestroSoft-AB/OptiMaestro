@@ -60,7 +60,7 @@ int ech_update_cache(ECH* _ECH)
     free((void*)_ECH->cache_path);
 
   time_t today = epoch_now_day();
-  time_t tmrw = today + 86400;
+  // time_t tmrw = today + 86400;
 
   time_t target_day = today;
 
@@ -203,13 +203,12 @@ int ech_write_cache_json(const Electricity_Spots* _Spot, const char* _cache_path
   cJSON* Json_Spots = cJSON_AddArrayToObject(Json_Root, "spots");
 
   int i;
-  for (i = 0; i < _Spot->price_count; i++) {
+  for (i = 0; i < (int)_Spot->price_count; i++) {
     Electricity_Spot_Price Prices = _Spot->prices[i];
     cJSON* Json_Spot = cJSON_CreateObject();
 
-    time_t time_end_epoch = Prices.time_start + 900;
     const char* time_start = parse_epoch_to_iso_full_datetime_string(&Prices.time_start, 0);
-    const char* time_end = parse_epoch_to_iso_full_datetime_string(&time_end_epoch, 0);
+    const char* time_end = parse_epoch_to_iso_full_datetime_string(&Prices.time_end, 0);
 
     // DEBUG: have to make sure times are correct everywhere, w. timezone n shiet
     // printf("time_start: %s | time_end: %s \r\n", time_start, time_end);
