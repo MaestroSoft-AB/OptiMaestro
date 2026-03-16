@@ -365,54 +365,41 @@ int calc_results_json_create(Calc_Results* _Res, const char* _filename)
   return SUCCESS;
 }
 
-/*
-int calc_summary_create(Calc_Results* _Res, const char* _filename)
-{
-
-  return SUCCESS;
-}
-*/
-
-//TODO: Get rid of all this shit, write proper cache fetching interfaces 
+//TODO: Improve this shit, write proper cache fetching interfaces 
 // just based on date range, caller caring only about initing data struct
-int calc_init_ech(ECH* _ech)
+int calc_fetch_input_data(Electricity_Spots* _S, Weather* _W, Calc_Args* _Args)
 {
-  if (!_ech) {
-    return ERR_INVALID_ARG;
-  }
-
-  memset(&_ech->spot, 0, sizeof(Electricity_Spots));
-  memset(&_ech->epjn_spot, 0, sizeof(EPJN_Spots));
-
-  _ech->spot.price_class = _ech->conf.price_class;
-  _ech->spot.currency = _ech->conf.currency;
-
-  time_t today = epoch_now_day();
-
-  _ech->cache_path =
-      ech_get_cache_filepath(_ech->conf.data_dir, today, _ech->conf.price_class, _ech->conf.currency);
-
-  return SUCCESS;
-}
-
-int calc_init_weather(Weather* _W, const char* _cache_dir)
-{
-  if (!_W) {
-    return ERR_INVALID_ARG;
-  }
-
+  int res;
+  memset(_S, 0, sizeof(Electricity_Spots));
   memset(_W, 0, sizeof(Weather));
-  
-  // THIS IS STUPID, THERE'S A CHANCE ENOUGH TIME HAS PASSED AFTER wch_update_cache() THAT NO FILENAME WITH THIS NAME EXISTS!
+
+  /* Spots cache */
+  time_t today = epoch_now_day();
+  const char* spots_cache_path =
+      ech_get_cache_filepath(_Args->spots_dir, today, _Args->price_class, _Args->currency);
+
+  res = ech_read_cache(_S, spots_cache_path);
+  if (res != 0) {
+    LOG_ERROR("ech_read_cache (%i)", res);
+    free((void*)spots_cache_path);
+    return res;
+  }
+  free((void*)spots_cache_path);
+
+  /* Weather cache */
+  // THIS IS STUPID, THERE'S A CHANCE ENOUGH TIME HAS PASSED AFTER wch_update_cache() THAT NO FILENAME WITH THIS NAME EXISTS! ALSO NOT THE SAME STARTING INDEX AS SPOTS
   // TODO: SWITCH TO MORE DYNAMIC CACHE FETCHING, i.e hdf5/db
   time_t now = time(NULL);
-  const char* cache_path =
-      wch_get_cache_json_filepath(_cache_dir, now, true);
+  const char* weather_cache_path =
+      wch_get_cache_json_filepath(_Args->weather_dir, now, true);
 
-  if (wch_read_cache_json(_W, cache_path) != SUCCESS) {
+  if (wch_read_cache_json(_W, weather_cache_path) != SUCCESS) {
     LOG_ERROR("wch_read_cache_json");
+    free((void*)weather_cache_path);
+    free(_S->prices);
     return ERR_INTERNAL;
   }
+    free((void*)weather_cache_path);
 
   return SUCCESS;
 }
@@ -421,6 +408,7 @@ int calc_init_weather(Weather* _W, const char* _cache_dir)
 
 int calc_create_reports(Calc_Args* _Args)
 {
+  int res;
   if (!_Args->calcs_dir || !_Args->spots_dir || !_Args->weather_dir)
     return ERR_INVALID_ARG;
 
@@ -429,71 +417,47 @@ int calc_create_reports(Calc_Args* _Args)
   if (_Args->max_threads < 1)
     _Args->max_threads = 1;
 
-  int res;
-
   Thread_Pool* TP = tp_init(_Args->max_threads);
   if (!TP) {
     LOG_ERROR("tp_init");
     return ERR_FATAL;
   }
 
-  /* Get Electricity cache */
-  ECH_Conf conf = {0};
-  ECH_Conf* conf_ptr = &conf;
-  conf_ptr->currency = _Args->currency;
-  conf_ptr->data_dir = _Args->spots_dir;
-  conf_ptr->price_class = _Args->price_class;
-
-  ECH ech = {0};
-  ech.conf = conf;
-  ECH* ech_ptr = &ech;
-
-  res = calc_init_ech(&ech);
-  if (res != 0) {
-    LOG_ERROR("calc_init_ech (%i)", res);
-    ech_dispose(ech_ptr);
-    return res;
-  }
-
-  res = ech_read_cache(&ech_ptr->spot, ech_ptr->cache_path);
-  if (res != 0) {
-    LOG_ERROR("ech_read_cache (%i)", res);
-    ech_dispose(ech_ptr);
-    return res;
-  }
-
-  /* Get weather cache */
+  /* Get cache */
   Weather W = {0};
   Weather* W_Ptr = &W;
-  res = calc_init_weather(W_Ptr, _Args->weather_dir);
+  Electricity_Spots S = {0};
+  Electricity_Spots* S_Ptr = &S;
+
+  res = calc_fetch_input_data(S_Ptr, W_Ptr, _Args);
   if (res != SUCCESS) {
-    LOG_WARN("calc_init_weather");
-    W_Ptr = NULL;
+    LOG_ERROR("calc_fetch_input_data");
+    return ERR_FATAL;
   }
 
   /* Define threadtask arguments */
   Calc_Thread_Args Thread_Args[4] = {
     { 
       .calc_args = _Args,
-      .spots = &ech_ptr->spot,
+      .spots = S_Ptr,
       .weather = W_Ptr,
       .interval = HOURLY,
     },
     { 
       .calc_args = _Args,
-      .spots = &ech_ptr->spot,
+      .spots = S_Ptr,
       .weather = W_Ptr,
       .interval = QUARTERLY,
     },
     { 
       .calc_args = _Args,
-      .spots = &ech_ptr->spot,
+      .spots = S_Ptr,
       .weather = NULL,
       .interval = HOURLY,
     },
     { 
       .calc_args = _Args,
-      .spots = &ech_ptr->spot,
+      .spots = S_Ptr,
       .weather = NULL,
       .interval = QUARTERLY,
     },
@@ -504,16 +468,23 @@ int calc_create_reports(Calc_Args* _Args)
     TP_Task Task = {calc_daily_averages_threadtask, &Thread_Args[i], NULL, NULL};
     res = tp_task_add(TP, &Task);
     if (res != 0) LOG_ERROR("tp_task_add (%i)", res);
-    tp_wait(TP);
   }
 
   /* Wait for threads to finish then dispose */
+  tp_wait(TP);
   tp_dispose(TP);
 
-  ech_dispose(ech_ptr);
+  if (S_Ptr->prices != NULL)
+    free(S_Ptr->prices);
   wch_weather_dispose(&W);
 
   return 0;
+}
+
+int calc_summary_create(Calc_Results* _Res, const char* _filename)
+{
+
+  return SUCCESS;
 }
 
 
