@@ -48,6 +48,9 @@ char* wch_get_cache_json_filepath(const char*    _base_path,
                              time_t         _datetime,
                              bool           _forecast);
 
+// int wch_read_cache_hdf5(Weather* _W, const char* _cache_path, 
+//                         time_t _start_date, time_t _end_date);
+
 void wch_weather_dispose(Weather* _W);
 void wch_dispose(WCH* _WCH_Ptr);
 

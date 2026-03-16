@@ -21,7 +21,6 @@ typedef struct
 
   time_t*          timestamps;
 
-
   float            cheapness_thresh; // % to consider above/below average in decimals
   float            spot_prices_avg;
   float            solar_gains_avg;

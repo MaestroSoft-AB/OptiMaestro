@@ -111,8 +111,9 @@ void calc_daily_averages_threadtask(void* _context)
     return;
   }
 
+
   Calc_Results Res = {0};
-  if (calc_results_create(&Res, C_Args, S, W, epd, T_Args->interval, 0.1) != SUCCESS) {
+  if (calc_results_create(&Res, C_Args, S, W, epd, T_Args->interval, 0.25) != SUCCESS) {
     LOG_ERROR("calc_results_create");
     return;
   }
@@ -131,8 +132,8 @@ static inline int calc_results_create(Calc_Results* _Res,
     const Calc_Args* _Args,
     const Electricity_Spots* _S, 
     const Weather* _W, // optional
-    unsigned int _count, // amount of spots
-    ResultsInterval _interval, // output accuracy from quarterly data
+    unsigned int _count, // amount of expected output spots (e.g 24 or 96)
+    ResultsInterval _interval, // output accuracy from quarterly data (e.g 4 or 1)
     float _avg_thresh)
 {
   if (!_S 
@@ -151,72 +152,76 @@ static inline int calc_results_create(Calc_Results* _Res,
   _Res->cheapness_thresh = _avg_thresh;
   _Res->count = _count;
 
-  _Res->timestamps = calloc(1, sizeof(time_t) * _count);
+  /* Sync spot and weather indexes (TODO: remove this when db implemented and just make sure count and time_start is the same for them) */
+  int weather_index_start = 0;
+  int spot_index_start = 0;
+  if (_W) {
+    weather_index_start = -1;
+    for (int i = 0; i < (int)_W->count; i++)
+      if (_W->values[i].timestamp == _S->prices[0].time_start)
+        weather_index_start = i;
+    
+    printf("weather index start: %i\n", weather_index_start);
+    printf("weather timestamp start: %li\n", _W->values[weather_index_start].timestamp);
+    if (weather_index_start < 0) {
+      LOG_ERROR("No overlapping weather+spots data as input");
+      return ERR_INVALID_ARG;
+    }
+
+    int synced_weather_count = _W->count - weather_index_start + 1;
+    if (synced_weather_count < (int)_S->price_count) {
+      _Res->count = synced_weather_count / _interval;
+      spot_index_start = (int)_S->price_count - synced_weather_count - 1;
+    }
+    printf("synced_weather_count: %i\n",  synced_weather_count);
+    printf("spot index start: %i\n", spot_index_start);
+    printf("spot timestamp start: %li\n", _S->prices[spot_index_start].time_start);
+  }
+
+  /* Result allocations */
+  _Res->timestamps = calloc(1, sizeof(time_t) * _Res->count);
   if (!_Res->timestamps) {
     LOG_ERROR("calloc");
     calc_results_dispose(_Res);
     return ERR_NO_MEMORY;
   }
-  _Res->spot_prices = calloc(1, sizeof(float) * _count);
+  _Res->spot_prices = calloc(1, sizeof(float) * _Res->count);
   if (!_Res->spot_prices) {
     LOG_ERROR("calloc");
     calc_results_dispose(_Res);
     return ERR_NO_MEMORY;
   }
 
-  // for (int i = 0; i < (int)_Res->count; i++) 
-  //   _Res->spot_prices[i] = _S->prices[i].spot_price;
-  //
-  /* Prefill spot prices to get average */
-  // for (unsigned int i = 0; i < (_count / _interval); i+=_interval)
-  
-  printf("Here's one array: [");
-  for (int i = 0; i < (int)_S->price_count; i++)
-    printf("%f,", _S->prices[i].spot_price);
-  printf("]\n\n");
-
-  float price_sum = 0.0;
-  for (int i = 0; i < (int)_S->price_count; i++)
-    price_sum += _S->prices[i].spot_price;
-
-  _Res->spot_prices_avg = price_sum / _S->price_count;
-
-  printf("spot prices average: %f\n", _Res->spot_prices_avg);
-
-  _Res->spot_prices_cheapness = calloc(1, sizeof(PriceCheapness) * _count);
+  _Res->spot_prices_cheapness = calloc(1, sizeof(PriceCheapness) * _Res->count);
   if (!_Res->spot_prices_cheapness) {
     LOG_ERROR("calloc");
     calc_results_dispose(_Res);
     return ERR_NO_MEMORY;
   }
-  _Res->spot_prices_deviation = calloc(1, sizeof(float) * _count);
+  _Res->spot_prices_deviation = calloc(1, sizeof(float) * _Res->count);
   if (!_Res->spot_prices_deviation) {
     LOG_ERROR("calloc");
     calc_results_dispose(_Res);
     return ERR_NO_MEMORY;
   }
 
+  float price_sum = 0.0;
+  for (int i = 0; i < (int)(_Res->count * _interval); i++)
+    price_sum += _S->prices[i+spot_index_start].spot_price;
+
+  _Res->spot_prices_avg = price_sum / (_Res->count * _interval);
+
+  printf("spot prices average: %f\n", _Res->spot_prices_avg);
+
   /* Solar specific */
   if (_W) {
-
-    /* Make sure weather vals start at same index as spots in terms of time */
-    // Weather W_Cpy; 
-    // W_Cpy = *_W;
-    // Weather_Values* WV_Ptr = &W_Cpy.values[0];
-    // for (unsigned int i = 0; i < _W->count; i++) {
-    //   WV_Ptr = &W_Cpy.values[i];
-    //   if (_S->prices[0].time_start == WV_Ptr->timestamp)
-    //     break;
-    //
-    // }
-
-    _Res->solar_gains = calloc(1, sizeof(float) * _count);
+    _Res->solar_gains = calloc(1, sizeof(float) * _Res->count);
     if (!_Res->solar_gains) {
       LOG_ERROR("calloc");
       calc_results_dispose(_Res);
       return ERR_NO_MEMORY;
     }
-    _Res->solar_gains_deviation = calloc(1, sizeof(float) * _count);
+    _Res->solar_gains_deviation = calloc(1, sizeof(float) * _Res->count);
     if (!_Res->solar_gains_deviation) {
       LOG_ERROR("calloc");
       calc_results_dispose(_Res);
@@ -224,55 +229,60 @@ static inline int calc_results_create(Calc_Results* _Res,
     }
 
     // We use GTI
-    // TODO: Remove 96 bandaid
     // solars_avg = math_get_avg_float(&_W->values[96].radiation_tilted, _W->count-96);
     float solars_sum = 0.0;
-    for (int i = 96; i < (int)_W->count; i++)
-      solars_sum += _W->values[i].radiation_tilted;
+    for (int i = 0; i < (int)(_Res->count * _interval); i++)
+      solars_sum += _W->values[i+weather_index_start].radiation_tilted;
 
-    solars_avg = solars_sum / 96;
+    solars_avg = solars_sum / (float)(_Res->count * _interval);
     solars_gain_avg = (solars_avg / 1000) * _Res->spot_prices_avg;
     _Res->solar_gains_avg = solars_gain_avg;
   }
+
   unsigned int i;
   for (i = 0; i < _Res->count; i++) {
-    unsigned int base_index = i * _interval;
+    unsigned int base_index = (i+spot_index_start) * _interval;
 
     _Res->timestamps[i] = _S->prices[base_index].time_start;
 
     float spot_sum = 0.0;
     float solar_sum = 0.0;
 
-    for (int j = 0; j < (int)_interval && (i + j) < _S->price_count; j++) {
-      spot_sum += _S->prices[i + j].spot_price;
-      // TODO: Remove bandaid "+ 96" and expect in-data with correct count!
-      if (_W) solar_sum += _W->values[i + j + 96].radiation_tilted;
+    /* Calculate sums within interval */
+    unsigned int j;
+    for (j = 0; j < _interval && (base_index + j) < _S->price_count; j++) {
+      spot_sum += _S->prices[base_index + j].spot_price;
+      if (_W) solar_sum += _W->values[base_index + j + weather_index_start].radiation_tilted;
     }
-    float spot_price = spot_sum / _interval;
+    float spot_price = spot_sum / j;
 
     /* Get how much money we gain from solar panels */
     if (_W) {
-      float solar_watt = (solar_sum * _Args->panel_size) / _interval;
-      float solar_gain = (solar_watt / 1000) * spot_price;
-      double solar_gain_deviation = ((solar_gain - solars_gain_avg) / solars_gain_avg);
-      // TODO: Remove bandaid "+ 96" and expect in-data with correct count!
-      _Res->solar_gains[i] = solar_gain;
-      _Res->solar_gains_deviation[i] = solar_gain_deviation;
-      
-      spot_price -= solar_gain; // deduct solar gain from price
+      if (solar_sum > 0) {
+        float solar_watt = (solar_sum * _Args->panel_size) / _interval;
+        float solar_gain = (solar_watt / 1000) * spot_price;
+        double solar_gain_deviation = ((solar_gain - solars_gain_avg) / solars_gain_avg);
+        _Res->solar_gains[i] = solar_gain;
+        _Res->solar_gains_deviation[i] = solar_gain_deviation;
+        
+        spot_price -= solar_gain; // deduct solar gain from price
+      }
+      else {
+        _Res->solar_gains[i] = 0.0;
+        _Res->solar_gains_deviation[i] = 0.0;
+      }
     }
 
     _Res->spot_prices[i] = spot_price;
     float spots_deviation = ((spot_price - _Res->spot_prices_avg) / _Res->spot_prices_avg);
-    _Res->spot_prices_deviation[i] = spots_deviation;
+    _Res->spot_prices_deviation[i] = spots_deviation * 100;
 
-    if (spot_price > _Res->spot_prices_avg * _Res->cheapness_thresh)
+    if (spot_price > (_Res->spot_prices_avg * (1.0f + _Res->cheapness_thresh)))
       _Res->spot_prices_cheapness[i] = EXPENSIVE;
-    else if (spot_price < _Res->spot_prices_avg * _Res->cheapness_thresh)
+    else if (spot_price < (_Res->spot_prices_avg * (1.0f - _Res->cheapness_thresh)))
       _Res->spot_prices_cheapness[i] = CHEAP;
     else
       _Res->spot_prices_cheapness[i] = AVERAGE;
-
   }
 
   return SUCCESS;
@@ -316,14 +326,15 @@ int calc_results_json_create(Calc_Results* _Res, const char* _filename)
   cJSON* Json_Meta = cJSON_CreateObject();
 
   cJSON_AddStringToObject(Json_Meta, "deviation_unit", "%");
+  cJSON_AddStringToObject(Json_Meta, "spot_unit", "kW");
   cJSON_AddStringToObject(Json_Meta, "currency", "SEK");
   cJSON_AddNumberToObject(Json_Meta, "cheapness_threshold_percent", _Res->cheapness_thresh * 100);
   cJSON_AddNumberToObject(Json_Meta, "spot_price_average", _Res->spot_prices_avg);
 
-
   if (_Res->solar_gains && _Res->solar_gains_deviation) {
     cJSON_AddNumberToObject(Json_Meta, "solar_gains_average", _Res->solar_gains_avg);
   }
+  cJSON_AddNumberToObject(Json_Meta, "count", _Res->count);
 
   cJSON_AddItemToObject(Json_Root, "meta", Json_Meta);
 
@@ -372,10 +383,102 @@ int calc_results_json_create(Calc_Results* _Res, const char* _filename)
   return SUCCESS;
 }
 
+// int calc_summary_create(Calc_Results* _Res, Calc_Args* _Args, const char* _filename)
+// {
+//   if (!_Res || !_Args || !_filename) {
+//     return ERR_INVALID_ARG;
+//   }
+//
+//   int res;
+//   FILE* f;
+//   time_t t = time(NULL);
+//   struct tm tm = *localtime(&t);
+//
+//   char today[11]; // YYYY-MM-DD
+//   strftime(today, sizeof(today), "%Y%m%d", &tm);
+//
+//   char filename[128];
+//
+//   res = snprintf(filename, sizeof(filename), "%s/%s-SP24-SE%i.txt", _Args->calcs_dir, today, _Args->price_class+1);
+//
+//   if (res < 0 || (size_t)res >= sizeof(filename)) {
+//     LOG_ERROR("Failed to create filename");
+//     return ERR_INVALID_ARG;
+//   }
+//
+//   pthread_mutex_lock(&mutex_global);
+//   f = fopen(filename, "w");
+//   enum
+//   {
+//     TIME_W = 19,
+//     AVG_W = 12,
+//     DEV_W = 8
+//   };
+//
+//   fprintf(f, "================ DAILY PRICE SUMMARY =================\n");
+//   fprintf(f, "Daily Price Average: %.4f\n", _Res->spot_prices_avg);
+//
+//   fprintf(f, "------------------------------------------------------\n");
+//   fprintf(f, "%-*s | %*s | %*s\n", TIME_W, "Hour starting", AVG_W, "Hour Avg", DEV_W, "Dev %");
+//   fprintf(f, "------------------------------------------------------\n");
+//
+//   char start_buf[32];
+//   char end_buf[32];
+//   for (unsigned int i = 0; i < _Res->count; i++) {
+//
+//     struct tm tm_start;
+//     struct tm* tmp;
+//
+//     tmp = localtime(&_Res->timestamps[i]);
+//     if (tmp)
+//       tm_start = *tmp;
+//
+//     strftime(start_buf, sizeof(start_buf), "%Y-%m-%d %H:%M:%S", &tm_start);
+//
+//     double price = (double)s->prices[i].spot_price;
+//     double deviation = ((price - daily_avg) / daily_avg) * 100.0;
+//
+//     const char* status;
+//
+//     if (_Res->spot_prices_cheapness[i] == CHEAP)
+//       status = "CHEAP";
+//     else if (_Res->spot_prices_cheapness[i] == EXPENSIVE)
+//       status = "EXPENSIVE";
+//     else
+//       status = "AVERAGE";
+//
+//     /* Solar */
+//     if (_Res->solar_gains && _Res->solar_gains_deviation) {
+//
+//     }
+//     else {
+//     
+//       fprintf(f, "%-*s | %*.3f SEK | %+*.2f\n", TIME_W, start_buf, AVG_W - 4,
+//               hour_avg, /* -4 för " SEK" */
+//               DEV_W, deviation);
+//     }
+//
+//     tmp = localtime(&s->prices[i].time_start);
+//     if (tmp)
+//       tm_start = *tmp;
+//
+//   }
+//
+//   fprintf(f, "------------------------------------------------------\n\n");
+//
+//   fclose(f);
+//   pthread_mutex_unlock(&mutex_global);
+//
+//   return SUCCESS;
+// }
+
 //TODO: Improve this shit, write proper cache fetching interfaces 
 // just based on date range, caller caring only about initing data struct
 int calc_fetch_input_data(Electricity_Spots* _S, Weather* _W, Calc_Args* _Args)
 {
+  if (!_S || !_W || !_Args)
+    return ERR_INVALID_ARG;
+
   int res;
   memset(_S, 0, sizeof(Electricity_Spots));
   memset(_W, 0, sizeof(Weather));
@@ -475,10 +578,10 @@ int calc_create_reports(Calc_Args* _Args)
     TP_Task Task = {calc_daily_averages_threadtask, &Thread_Args[i], NULL, NULL};
     res = tp_task_add(TP, &Task);
     if (res != 0) LOG_ERROR("tp_task_add (%i)", res);
+    tp_wait(TP); // this after loop
   }
 
   /* Wait for threads to finish then dispose */
-  tp_wait(TP);
   tp_dispose(TP);
 
   if (S_Ptr->prices != NULL)
@@ -488,104 +591,8 @@ int calc_create_reports(Calc_Args* _Args)
   return 0;
 }
 
-int calc_summary_create(Calc_Results* _Res, const char* _filename)
-{
-
-  return SUCCESS;
-}
 
 
-//TODO: make these into separate print functions 
-// pref that just return a string that can be written to file by threadtask
-// enum
-// {
-//   INTERVAL_W = 43,
-//   PRICE_W = 12,
-//   DEV_W = 8,
-//   STATUS_W = 9
-// };
-//
-// void calc_averages_1hour_print(void* _context)
-// {
-//   if (!_context)
-//     return;
-//
-//   Calc_Thread_Args* Task_Args = (Calc_Thread_Args*)_context;
-//   Calc_Args* Calc_Args = Task_Args->calc_args;
-//   Electricity_Spots* s = Task_Args->spots;
-//
-//   if (!s || !Calc_Args || !Calc_Args->calcs_dir) {
-//     return;
-//   }
-//
-//   int res;
-//   FILE* f;
-//   time_t t = time(NULL);
-//   struct tm tm = *localtime(&t);
-//
-//   char today[11]; // YYYY-MM-DD
-//   strftime(today, sizeof(today), "%Y%m%d", &tm);
-//
-//   char filename_24[128];
-//
-//   res = snprintf(filename_24, sizeof(filename_24), "%s/%s-SP24-SE%i.json", Calc_Args->calcs_dir, today, Calc_Args->price_class+1);
-//
-//   if (res < 0 || (size_t)res >= sizeof(filename_24)) {
-//     LOG_ERROR("Failed to create filename_24");
-//     return;
-//   }
-//
-//   f = fopen(filename_24, "w");
-//
-//   enum
-//   {
-//     TIME_W = 19,
-//     AVG_W = 12,
-//     DEV_W = 8
-//   };
-//
-//   float daily_avg = math_get_avg_float(&s->prices->spot_price, s->price_count);
-//
-//   fprintf(f, "\n================ HOURLY AVERAGES =====================\n");
-//   fprintf(f, "Daily Average: %.4f\n", daily_avg);
-//
-//   fprintf(f, "------------------------------------------------------\n");
-//   fprintf(f, "%-*s | %*s | %*s\n", TIME_W, "Hour starting", AVG_W, "Hour Avg", DEV_W, "Dev %");
-//   fprintf(f, "------------------------------------------------------\n");
-//
-//   for (unsigned int i = 0; i < s->price_count; i += 4) {
-//
-//     double hour_sum = 0.0;
-//     int count = 0;
-//
-//     for (int j = 0; j < 4 && (i + j) < s->price_count; j++) {
-//       hour_sum += s->prices[i + j].spot_price;
-//       count++;
-//     }
-//     double hour_avg = hour_sum / count;
-//
-//     double deviation = ((hour_avg - daily_avg) / daily_avg) * 100.0;
-//
-//     char start_buf[20];
-//     struct tm tm_start;
-//     struct tm* tmp;
-//
-//     tmp = localtime(&s->prices[i].time_start);
-//     if (tmp)
-//       tm_start = *tmp;
-//
-//     strftime(start_buf, sizeof(start_buf), "%Y-%m-%d %H:%M:%S", &tm_start);
-//
-//     fprintf(f, "%-*s | %*.3f SEK | %+*.2f\n", TIME_W, start_buf, AVG_W - 4,
-//             hour_avg, /* -4 för " SEK" */
-//             DEV_W, deviation);
-//   }
-//
-//   fprintf(f, "------------------------------------------------------\n\n");
-//
-//   fclose(f);
-// }
-//
 // void calc_averages_15min_print(void* _context)
 // {
 //   if (!_context)
