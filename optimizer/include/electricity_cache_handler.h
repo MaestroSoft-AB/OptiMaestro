@@ -38,6 +38,8 @@ int ech_read_cache(Electricity_Spots* _Spot, const char* _cache_path);
 char* ech_get_cache_filepath(const char* _base_path, const time_t _start,
                              const SpotPriceClass _price_class, const SpotCurrency _currency);
 
+int ech_get_spots_range(Electricity_Spots* _S, const char* _spots_dir, SpotPriceClass _price_class,
+                        SpotCurrency _currency, time_t _start, time_t _end);
 void ech_dispose(ECH* _ECH_Ptr);
 
 /* ========================================================= */

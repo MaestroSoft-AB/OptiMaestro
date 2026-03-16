@@ -83,7 +83,7 @@ int optimizer_init(Optimizer* _O)
 
 int optimizer_config_set(Optimizer_Config* _OC)
 {
-  
+
   if (_OC->data_dir)
     free(_OC->data_dir);
   if (_OC->data_weather_dir)
@@ -94,18 +94,12 @@ int optimizer_config_set(Optimizer_Config* _OC)
     free(_OC->data_calcs_dir);
 
   const char* keys[] = {
-      "sys.max_threads",     
-      "data.spots.currency",    
-      "data.spots.price_class",    
-      "data.dir",          
-      "data.spots.dir",
-      "data.weather.dir",    
-      "data.calcs.dir",         
-      "facility.latitude", 
-      "facility.longitude",
-      "facility.panel.tilt", 
-      "facility.panel.azimuth",
-      "facility.panel.m2_size",
+      "sys.max_threads",        "data.spots.currency",
+      "data.spots.price_class", "data.dir",
+      "data.spots.dir",         "data.weather.dir",
+      "data.calcs.dir",         "facility.latitude",
+      "facility.longitude",     "facility.panel.tilt",
+      "facility.panel.azimuth", "facility.panel.m2_size",
   };
 
   char conf_max_threads[64] = {0};
@@ -122,25 +116,15 @@ int optimizer_config_set(Optimizer_Config* _OC)
   char conf_solar_size[64] = {0};
 
   char* values[] = {
-      conf_max_threads,      
-      conf_currency,
-      conf_price_class, 
-      conf_data_dir,     
-      conf_data_spots_dir,
-      conf_data_weather_dir, 
-      conf_data_calcs_dir, 
-      conf_facility_lat, 
-      conf_facility_lon,
-      conf_solar_tilt,       
-      conf_solar_azimuth,
-      conf_solar_size,
+      conf_max_threads,    conf_currency,         conf_price_class,    conf_data_dir,
+      conf_data_spots_dir, conf_data_weather_dir, conf_data_calcs_dir, conf_facility_lat,
+      conf_facility_lon,   conf_solar_tilt,       conf_solar_azimuth,  conf_solar_size,
   };
 
   int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 64, 12);
 
   if (res != SUCCESS)
     return res;
-
 
   int max_threads = atoi(conf_max_threads);
   if (max_threads > 0)
@@ -275,13 +259,13 @@ int optimizer_run(Optimizer* _O)
   /* run calculator */
 
   Calc_Args C_Args = {
-    .calcs_dir = _O->config.data_calcs_dir,
-    .spots_dir = _O->config.data_spots_dir, 
-    .weather_dir = _O->config.data_weather_dir, 
-    .price_class = _O->config.price_class, 
-    .currency = _O->config.currency, 
-    .max_threads = _O->config.max_threads, 
-    .panel_size = (int)_O->config.panel_size,
+      .calcs_dir = _O->config.data_calcs_dir,
+      .spots_dir = _O->config.data_spots_dir,
+      .weather_dir = _O->config.data_weather_dir,
+      .price_class = _O->config.price_class,
+      .currency = _O->config.currency,
+      .max_threads = _O->config.max_threads,
+      .panel_size = (int)_O->config.panel_size,
   };
 
   if (calc_create_reports(&C_Args) != SUCCESS) {

@@ -6,7 +6,7 @@
 #define MAESTROUTILS_WITH_CJSON 1 // get rid of stupid lsp error
 #include "maestroutils/file_logging.h"
 #include "maestroutils/json_utils.h"
-
+#include "sqlite_helpers.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,7 +20,52 @@ int ech_validate_cache(const char* _cache_path);
 
 int ech_parse_json(Electricity_Spots* _Spot, const char* _json_str);
 
-/* ---------------------------------------------------------------- */
+/* --------------------------SQL---------------------------------- */
+int ech_get_spots_range(Electricity_Spots* _Spot, const char* _spots_dir,
+                        SpotPriceClass _price_class, SpotCurrency _currency, time_t _start,
+                        time_t _end)
+{
+
+  if (!_Spot || !_spots_dir) {
+    return ERR_INVALID_ARG;
+  }
+
+  int res;
+  sqlite3* db = NULL;
+  char db_path[512];
+
+  snprintf(db_path, sizeof(db_path), "%s/cache.db", _spots_dir);
+
+  res = sql_helper_open(&db, db_path);
+
+  if (res != SUCCESS) {
+    LOG_ERROR("sql_helper_open (%i)", res);
+    return res;
+  }
+
+  res = sql_helper_init_schema(db);
+
+  if (res != SUCCESS) {
+    LOG_ERROR("sql_helper_init_schema (%i)", res);
+    sql_helper_close(db);
+    return res;
+  }
+
+  res = sql_helper_read_spots(db, _Spot, _price_class, _currency, _start, _end);
+  if (res != SUCCESS) {
+    LOG_ERROR("sql_helper_read_spots (%i)", res);
+    sql_helper_close(db);
+    return res;
+  }
+
+  sql_helper_close(db);
+
+  if (_Spot->price_count == 0)
+    return ERR_NOT_FOUND;
+
+  return SUCCESS;
+}
+/*******************************************************************/
 
 int ech_init(ECH* _ECH, const ECH_Conf* _Conf)
 {
@@ -49,127 +94,246 @@ int ech_init(ECH* _ECH, const ECH_Conf* _Conf)
 
 int ech_update_cache(ECH* _ECH)
 {
+
+  if (!_ECH) {
+    return ERR_INVALID_ARG;
+  }
   LOG_INFO("Updating electricity cache (SE%d)...\r\n", _ECH->conf.price_class + 1);
 
-  /* Set conf spot vars */
+  int res;
+  sqlite3* db = NULL;
+
+  char path_buf[512];
+  const char* db_path = NULL;
+  if (!_ECH->conf.data_dir) {
+    db_path = ECH_BASE_CACHE_PATH_FALLBACK "/cache.db";
+  } else {
+    snprintf(path_buf, sizeof(path_buf), "%s/cache.db", _ECH->conf.data_dir);
+    db_path = path_buf;
+  }
+
   _ECH->spot.price_class = _ECH->conf.price_class;
   _ECH->spot.currency = _ECH->conf.currency;
-
-  /* Free previous path allocation */
-  if (_ECH->cache_path != NULL)
-    free((void*)_ECH->cache_path);
 
   time_t today = epoch_now_day();
   time_t tmrw = today + 86400;
 
   time_t target_day = today;
+  int update_hour = 13;
 
-  int update_hour = 13; // Now the question is what time(s) ech should be run..
   if (time_is_at_or_after_hour(update_hour)) {
-    // target_day = tmrw;
-    if (!_ECH->conf.data_dir)
-      _ECH->cache_path = ech_get_cache_filepath(ECH_BASE_CACHE_PATH_FALLBACK, target_day,
-                                                _ECH->conf.price_class, _ECH->conf.currency);
-    else
-      _ECH->cache_path = ech_get_cache_filepath(_ECH->conf.data_dir, target_day,
-                                                _ECH->conf.price_class, _ECH->conf.currency);
-  } else { // todays prices
-    if (!_ECH->conf.data_dir)
-      _ECH->cache_path = ech_get_cache_filepath(ECH_BASE_CACHE_PATH_FALLBACK, target_day,
-                                                _ECH->conf.price_class, _ECH->conf.currency);
-    else
-      _ECH->cache_path = ech_get_cache_filepath(_ECH->conf.data_dir, target_day,
-                                                _ECH->conf.price_class, _ECH->conf.currency);
-  }
-
-  if (!_ECH->cache_path) {
-    LOG_ERROR("ech_set_cache_filepath");
-    return ERR_FATAL;
-  }
-
-  int res = ech_validate_cache(_ECH->cache_path);
-  if (res != SUCCESS) {
-    /* printf("No up to date electricity cache found, fetching..\r\n"); */
-    /* Get updated spots from extAPI and parse it */
-    res = epjn_init(&_ECH->epjn_spot);
-    if (res != 0) {
-      LOG_ERROR("epjn_init (%i)", res); // TODO: Logger
-      return res;
-    }
-
-    res = epjn_update(&_ECH->epjn_spot, _ECH->spot.price_class, target_day);
-    if (res != 0) {
-      LOG_ERROR("epjn_update (%i)", res); // TODO: Logger
-      return res;
-    }
-
-    res = epjn_parse(&_ECH->epjn_spot, &_ECH->spot, SPOT_SEK); // TODO: set currency from config
-    if (res != 0) {
-      LOG_ERROR("epjn_parse (%i)", res); // TODO: Logger
-      return res;
-    }
-
-    epjn_dispose(&_ECH->epjn_spot);
-
-    /* Write the parsed data to cache */
-    res = ech_write_cache_json(&_ECH->spot, _ECH->cache_path);
-    if (res != 0) {
-      LOG_ERROR("epjn_init (%i)", res); // TODO: Logger
-      return res;
-    }
+    target_day = tmrw;
   } else {
-    printf("Electricity cache up to date, parse it..\r\n");
-    res = ech_read_cache(&_ECH->spot, _ECH->cache_path);
-    if (res != 0) {
-      LOG_ERROR("ech_read_cache (%i)", res); // TODO: Logger
-      return res;
-    }
+    target_day = today;
   }
 
-  /* LOG_INFO("Electricity Cache updated! Example:\r\n");
-  printf("time=%lu   price=%f   currency=%i\r\n",
-      _ECH->spot.prices[5].time_start, _ECH->spot.prices[5].spot_price, _ECH->spot.currency); */
+  time_t range_start = target_day;
+  time_t range_end = target_day + 86400;
 
+  res = sql_helper_open(&db, db_path);
+  if (res != SUCCESS) {
+    LOG_ERROR("sql_helper_open (%i)", res);
+    return res;
+  }
+
+  // Speeds up cache
+  sqlite3_exec(db, "PRAGMA journal_mode=WAL;", NULL, NULL, NULL);
+  sqlite3_exec(db, "PRAGMA synchronous=NORMAL;", NULL, NULL, NULL);
+
+  res = sql_helper_init_schema(db);
+  if (res != SUCCESS) {
+    LOG_ERROR("sql_helper_init_schema (%i)", res);
+    sql_helper_close(db);
+    return res;
+  }
+
+  // Try to read from cache
+
+  res = sql_helper_read_spots(db, &_ECH->spot, _ECH->conf.price_class, _ECH->conf.currency,
+                              range_start, range_end);
+
+  if (res != SUCCESS) {
+    LOG_ERROR("sql_helper_read_spots (%i)", res);
+    sql_helper_close(db);
+    return res;
+  }
+
+  if (_ECH->spot.price_count > 0) {
+    LOG_INFO("Electricity cache up to date, loaded %d rows from db.\r\n", _ECH->spot.price_count);
+    sql_helper_close(db);
+    return SUCCESS;
+  }
+
+  LOG_INFO("No cached electricity data found, fetching from API...\r\n");
+
+  res = epjn_init(&_ECH->epjn_spot);
+  if (res != SUCCESS) {
+    LOG_ERROR("epjn_init (%i)", res);
+    sql_helper_close(db);
+    return res;
+  }
+
+  res = epjn_update(&_ECH->epjn_spot, _ECH->spot.price_class, target_day);
+  if (res != SUCCESS) {
+    LOG_ERROR("epjn_update (%i)", res);
+    epjn_dispose(&_ECH->epjn_spot);
+    sql_helper_close(db);
+    return res;
+  }
+
+  res = epjn_parse(&_ECH->epjn_spot, &_ECH->spot, _ECH->conf.currency);
+  if (res != SUCCESS) {
+    LOG_ERROR("epjn_parse (%i)", res);
+    epjn_dispose(&_ECH->epjn_spot);
+    sql_helper_close(db);
+    return res;
+  }
+
+  epjn_dispose(&_ECH->epjn_spot);
+
+  res = sql_helper_insert_spots(db, &_ECH->spot);
+  if (res != SUCCESS) {
+    LOG_ERROR("sql_helper_insert_spots (%i)", res);
+    sql_helper_close(db);
+    return res;
+  }
+
+  res = sql_helper_read_spots(db, &_ECH->spot, _ECH->conf.price_class, _ECH->conf.currency,
+                              range_start, range_end);
+
+  if (res != SUCCESS) {
+    LOG_ERROR("sql_helper_read_spots after insert (%i)", res);
+    sql_helper_close(db);
+    return res;
+  }
+
+  LOG_INFO("Electricity cache updated, loaded %d rows from db.\r\n", _ECH->spot.price_count);
+
+  sql_helper_close(db);
   return SUCCESS;
-}
 
-/* Define and return the cache path from given parameters */
-/* TODO: create recursive directories for year/month */
-char* ech_get_cache_filepath(const char* _base_path, const time_t _start,
-                             const SpotPriceClass _price_class, const SpotCurrency _currency)
-{
-  char path_buf[512];
-
-  /* Set timestamp (should probably shorten) */
-  const char* start_str = parse_epoch_to_iso_datetime_string(&_start);
-  if (start_str == NULL)
-    return NULL;
-
-  /* Set currency, only SEK and EUR for now */
-  char* currency;
-  if (_currency == SPOT_SEK)
-    currency = "SEK";
-  else if (_currency == SPOT_EUR)
-    currency = "EUR";
-  else {
-    LOG_ERROR("ech_get_cache_filepath: Invalid currency (%i)\r\n", _currency);
-    return NULL;
-  }
-
-  /* Build path name */
-  size_t path_len = snprintf(path_buf, sizeof(path_buf), "%s/SE%01i-%s_%s.json", _base_path,
-                             _price_class + 1, currency, start_str);
-
-  free((void*)start_str);
-
-  char* path = malloc(path_len + 1);
-  if (!path)
-    return NULL;
-
-  memcpy(path, path_buf, path_len);
-  path[path_len] = '\0';
-
-  return path;
+  //   LOG_INFO("Updating electricity cache (SE%d)...\r\n", _ECH->conf.price_class + 1);
+  //
+  //   /* Set conf spot vars */
+  //   _ECH->spot.price_class = _ECH->conf.price_class;
+  //   _ECH->spot.currency = _ECH->conf.currency;
+  //
+  //   /* Free previous path allocation */
+  //   if (_ECH->cache_path != NULL)
+  //     free((void*)_ECH->cache_path);
+  //
+  //   time_t today = epoch_now_day();
+  //   time_t tmrw = today + 86400;
+  //
+  //   time_t target_day = today;
+  //
+  //   int update_hour = 13; // Now the question is what time(s) ech should be run..
+  //   if (time_is_at_or_after_hour(update_hour)) {
+  //     // target_day = tmrw;
+  //     if (!_ECH->conf.data_dir)
+  //       _ECH->cache_path = ech_get_cache_filepath(ECH_BASE_CACHE_PATH_FALLBACK, target_day,
+  //                                                 _ECH->conf.price_class, _ECH->conf.currency);
+  //     else
+  //       _ECH->cache_path = ech_get_cache_filepath(_ECH->conf.data_dir, target_day,
+  //                                                 _ECH->conf.price_class, _ECH->conf.currency);
+  //   } else { // todays prices
+  //     if (!_ECH->conf.data_dir)
+  //       _ECH->cache_path = ech_get_cache_filepath(ECH_BASE_CACHE_PATH_FALLBACK, target_day,
+  //                                                 _ECH->conf.price_class, _ECH->conf.currency);
+  //     else
+  //       _ECH->cache_path = ech_get_cache_filepath(_ECH->conf.data_dir, target_day,
+  //                                                 _ECH->conf.price_class, _ECH->conf.currency);
+  //   }
+  //
+  //   if (!_ECH->cache_path) {
+  //     LOG_ERROR("ech_set_cache_filepath");
+  //     return ERR_FATAL;
+  //   }
+  //
+  //   int res = ech_validate_cache(_ECH->cache_path);
+  //   if (res != SUCCESS) {
+  //     /* printf("No up to date electricity cache found, fetching..\r\n"); */
+  //     /* Get updated spots from extAPI and parse it */
+  //     res = epjn_init(&_ECH->epjn_spot);
+  //     if (res != 0) {
+  //       LOG_ERROR("epjn_init (%i)", res); // TODO: Logger
+  //       return res;
+  //     }
+  //
+  //     res = epjn_update(&_ECH->epjn_spot, _ECH->spot.price_class, target_day);
+  //     if (res != 0) {
+  //       LOG_ERROR("epjn_update (%i)", res); // TODO: Logger
+  //       return res;
+  //     }
+  //
+  //     res = epjn_parse(&_ECH->epjn_spot, &_ECH->spot, SPOT_SEK); // TODO: set currency from
+  //     config if (res != 0) {
+  //       LOG_ERROR("epjn_parse (%i)", res); // TODO: Logger
+  //       return res;
+  //     }
+  //
+  //     epjn_dispose(&_ECH->epjn_spot);
+  //
+  //     /* Write the parsed data to cache */
+  //     res = ech_write_cache_json(&_ECH->spot, _ECH->cache_path);
+  //     if (res != 0) {
+  //       LOG_ERROR("epjn_init (%i)", res); // TODO: Logger
+  //       return res;
+  //     }
+  //   } else {
+  //     printf("Electricity cache up to date, parse it..\r\n");
+  //     res = ech_read_cache(&_ECH->spot, _ECH->cache_path);
+  //     if (res != 0) {
+  //       LOG_ERROR("ech_read_cache (%i)", res); // TODO: Logger
+  //       return res;
+  //     }
+  //   }
+  //
+  //   /* LOG_INFO("Electricity Cache updated! Example:\r\n");
+  //   printf("time=%lu   price=%f   currency=%i\r\n",
+  //       _ECH->spot.prices[5].time_start, _ECH->spot.prices[5].spot_price, _ECH->spot.currency);
+  //       */
+  //
+  //   return SUCCESS;
+  // }
+  //
+  // /* Define and return the cache path from given parameters */
+  // /* TODO: create recursive directories for year/month */
+  // char* ech_get_cache_filepath(const char* _base_path, const time_t _start,
+  //                              const SpotPriceClass _price_class, const SpotCurrency _currency)
+  // {
+  //   char path_buf[512];
+  //
+  //   /* Set timestamp (should probably shorten) */
+  //   const char* start_str = parse_epoch_to_iso_datetime_string(&_start);
+  //   if (start_str == NULL)
+  //     return NULL;
+  //
+  //   /* Set currency, only SEK and EUR for now */
+  //   char* currency;
+  //   if (_currency == SPOT_SEK)
+  //     currency = "SEK";
+  //   else if (_currency == SPOT_EUR)
+  //     currency = "EUR";
+  //   else {
+  //     LOG_ERROR("ech_get_cache_filepath: Invalid currency (%i)\r\n", _currency);
+  //     return NULL;
+  //   }
+  //
+  //   /* Build path name */
+  //   size_t path_len = snprintf(path_buf, sizeof(path_buf), "%s/SE%01i-%s_%s.json", _base_path,
+  //                              _price_class + 1, currency, start_str);
+  //
+  //   free((void*)start_str);
+  //
+  //   char* path = malloc(path_len + 1);
+  //   if (!path)
+  //     return NULL;
+  //
+  //   memcpy(path, path_buf, path_len);
+  //   path[path_len] = '\0';
+  //
+  //   return path;
 }
 
 int ech_validate_cache(const char* _cache_path)
