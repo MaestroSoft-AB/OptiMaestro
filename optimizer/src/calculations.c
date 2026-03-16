@@ -8,6 +8,7 @@
 #include <maestroutils/file_logging.h>
 #include <maestromodules/thread_pool.h>
 #include <maestroutils/math_utils.h>
+#include <pthread.h>
 #include "maestroutils/json_utils.h"
 #define MAESTROUTILS_WITH_CJSON 1 // get rid of stupid lsp error
 #include <stdio.h>
@@ -16,6 +17,8 @@
 // #define AVG_CACHE_PATH "/var/lib/maestro/"
 
 /* --------------------------- Internal --------------------------- */
+
+pthread_mutex_t mutex_global = PTHREAD_MUTEX_INITIALIZER;
 
 typedef enum
 {
@@ -231,10 +234,11 @@ static inline int calc_results_create(Calc_Results* _Res,
     solars_gain_avg = (solars_avg / 1000) * _Res->spot_prices_avg;
     _Res->solar_gains_avg = solars_gain_avg;
   }
-
   unsigned int i;
-  for (i = 0; i < _Res->count; i += (int)_interval) {
-    _Res->timestamps[i] = _S->prices[i].time_start;
+  for (i = 0; i < _Res->count; i++) {
+    unsigned int base_index = i * _interval;
+
+    _Res->timestamps[i] = _S->prices[base_index].time_start;
 
     float spot_sum = 0.0;
     float solar_sum = 0.0;
@@ -250,7 +254,7 @@ static inline int calc_results_create(Calc_Results* _Res,
     if (_W) {
       float solar_watt = (solar_sum * _Args->panel_size) / _interval;
       float solar_gain = (solar_watt / 1000) * spot_price;
-      double solar_gain_deviation = ((solar_gain - solars_gain_avg) / solars_gain_avg) * 100.0;
+      double solar_gain_deviation = ((solar_gain - solars_gain_avg) / solars_gain_avg);
       // TODO: Remove bandaid "+ 96" and expect in-data with correct count!
       _Res->solar_gains[i] = solar_gain;
       _Res->solar_gains_deviation[i] = solar_gain_deviation;
@@ -259,7 +263,7 @@ static inline int calc_results_create(Calc_Results* _Res,
     }
 
     _Res->spot_prices[i] = spot_price;
-    float spots_deviation = ((spot_price - _Res->spot_prices_avg) / _Res->spot_prices_avg) * 100.0;
+    float spots_deviation = ((spot_price - _Res->spot_prices_avg) / _Res->spot_prices_avg);
     _Res->spot_prices_deviation[i] = spots_deviation;
 
     if (spot_price > _Res->spot_prices_avg * _Res->cheapness_thresh)
@@ -355,8 +359,11 @@ int calc_results_json_create(Calc_Results* _Res, const char* _filename)
 
   char* json_str = cJSON_Print(Json_Root);
 
+  /* Write to file */
+  pthread_mutex_lock(&mutex_global);
   if (write_string_to_file(json_str, _filename) != 0)
     LOG_ERROR("Failed to write string \"%p\" to cache \"%p\"\n", json_str, _filename); 
+  pthread_mutex_unlock(&mutex_global);
 
   free(json_str);
 
@@ -399,7 +406,7 @@ int calc_fetch_input_data(Electricity_Spots* _S, Weather* _W, Calc_Args* _Args)
     free(_S->prices);
     return ERR_INTERNAL;
   }
-    free((void*)weather_cache_path);
+  free((void*)weather_cache_path);
 
   return SUCCESS;
 }
