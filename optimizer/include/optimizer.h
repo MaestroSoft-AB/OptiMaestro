@@ -3,33 +3,33 @@
 
 #include "data/electricity_structs.h"
 #include "electricity_cache_handler.h"
-#include "weather_cache_handler.h"
 #include "maestromodules/thread_pool.h"
+#include "weather_cache_handler.h"
 
-#include <stdint.h>
 #include <pthread.h>
+#include <stdint.h>
 
 #define OPTIMIZER_CONF_PATH "/etc/maestro/optimizer.conf"
 #define OPTIMIZER_LOG_PATH "/var/log/maestro.log"
 
 typedef struct
 {
-  char*          data_dir;
-  char*          data_spots_dir;
-  char*          data_weather_dir;
-  char*          data_calcs_dir;
+  char* data_dir;
+  char* data_spots_dir;
+  char* data_weather_dir;
+  char* data_calcs_dir;
 
-  SpotCurrency   currency;
+  SpotCurrency currency;
   SpotPriceClass price_class;
 
-  float          latitude;     
-  float          longitude;     
+  float latitude;
+  float longitude;
 
-  short          panel_azimuth; // +/- 180
-  unsigned short panel_tilt; 
+  short panel_azimuth; // +/- 180
+  unsigned short panel_tilt;
   unsigned short panel_size;
 
-  uint8_t        max_threads;
+  uint8_t max_threads;
 
   // bool      ext_spot;
   // bool      ext_weather;
@@ -40,8 +40,8 @@ typedef struct
 
 typedef struct
 {
-  Optimizer_Config  config;
-  Thread_Pool*      thread_pool;
+  Optimizer_Config config;
+  Thread_Pool* thread_pool;
 
 } Optimizer;
 

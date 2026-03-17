@@ -4,13 +4,13 @@
 
 typedef struct
 {
-  const char*    calcs_dir;
-  const char*    spots_dir; 
-  const char*    weather_dir; 
-  SpotPriceClass price_class; 
-  SpotCurrency   currency; 
-  int            max_threads; 
-  int            panel_size;
+  const char* calcs_dir;
+  const char* data_dir;
+  const char* weather_dir;
+  SpotPriceClass price_class;
+  SpotCurrency currency;
+  int max_threads;
+  int panel_size;
 
 } Calc_Args;
 
