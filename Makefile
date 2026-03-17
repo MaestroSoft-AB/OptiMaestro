@@ -119,3 +119,8 @@ $(addsuffix /run-asan,$(MODULES)): maestro
 	echo "Debugging module $$MODULE using asan..."; \
 	$(MAKE) -C $$MODULE run-asan
 
+# Optimizer daemon
+$(addsuffix /daemon,$(MODULES)): maestro
+	@MODULE=$(@D); \
+	echo "Running $$MODULE as daemon..."; \
+	$(MAKE) -C $$MODULE daemon

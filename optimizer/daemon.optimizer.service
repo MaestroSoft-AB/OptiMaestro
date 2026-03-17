@@ -1,0 +1,21 @@
+[Unit]
+Description=Maestro Optimizer Daemon
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/usr/local/bin/optimizer-daemon
+ExecReload=/bin/kill -USR2 $MAINPID
+ExecStop=/bin/kill -TERM $MAINPID
+Restart=always
+RestartSec=5
+PIDFile=/run/optimizer.pid
+User=nobody
+Group=nogroup
+RuntimeDirectory=optimizer
+StandardOutput=append:/var/log/maestro.log
+StandardError=append:/var/log/maestro.log
+
+[Install]
+WantedBy=multi-user.target
+

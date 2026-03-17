@@ -44,7 +44,7 @@ MBEDTLS_LIBS := \
 JSON ?= 1
 
 # Temp dirs
-CACHE_DIR := data/cache # TODO: Change to /var/cache/maestro/optimizer
+CACHE_DIR := /var/cache/maestro/optimizer 
 
 # Compilation flags
 CFLAGS := -std=c99 -MMD -MP -Wall -Wextra -Wfatal-errors -g -pg \
@@ -154,3 +154,27 @@ print:
 # ==================== Phonies ====================
 
 .PHONY: all run clean print gdb valgrind
+
+
+# ==================== Daemon =====================
+# (adds -DDAEMONIZE flag)
+DAEMON_BIN := $(BIN_DIR)/optimizer-daemon
+daemon: CFLAGS += -DDAEMONIZE
+daemon: $(DAEMON_BIN)
+
+$(DAEMON_BIN): $(OBJ) $(MAESTRO_LIB)
+	@echo "Creating daemon bin dir..."
+	@sudo mkdir -p /usr/local/bin
+	@echo "Linking daemon binary..."
+	@$(CC) $(LDFLAGS) $(OBJ) $(MAESTRO_LIB) $(MBEDTLS_LIBS) -o $@ $(LIBS) -lpthread -lm
+	@sudo chown root:root $@
+
+install-daemon: daemon
+	@echo "Installing daemon binary and systemd service..."
+	@sudo cp daemon.optimizer.service /etc/systemd/system/
+	@sudo systemctl daemon-reload
+	@sudo systemctl enable optimizer-daemon.service
+	@echo "Daemon installed. Run 'sudo systemctl start optimizer-daemon' to start."
+
+.PHONY: daemon install-daemon
+

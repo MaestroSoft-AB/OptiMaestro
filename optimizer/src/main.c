@@ -1,10 +1,19 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "maestroutils/error.h"
-#include "maestroutils/signal_handler.h"
+#ifdef DAEMONIZE
+  #include "daemon.h"
+  #define USE_SYSLOG 1
+#else
+  #define USE_SYSLOG 0
+#endif
+
 #include "optimizer.h"
+
+#include <maestroutils/error.h>
+#include <maestroutils/signal_handler.h>
 #include <maestromodules/tls_global_ca.h>
 #include <maestroutils/file_logging.h>
+
 #include <time.h>
 
 #define OPTIMIZER_LOG_PATH "/var/log/maestro.log"
@@ -38,8 +47,24 @@ struct timespec req = {0, 100}; // nanosleep delay, .1 ms
 
 int main(int _argc, const char** _argv)
 {
-  log_init(OPTIMIZER_LOG_PATH);
+#ifdef DAEMONIZE
+  if (daemonize(_argv[0]) != SUCCESS) {
+    syslog(LOG_ERR, "%s - daemonization failed", _argv[0]);
+    exit(1);
+  }
+  
+  if (log_init(OPTIMIZER_LOG_PATH) != 0) {
+    syslog(LOG_ERR, "log_init failed for %s", OPTIMIZER_LOG_PATH);
+    exit(1);
+  }
+  LOG_INFO("Daemon fully started (PID %d)", getpid());
+#else
+  if (log_init(OPTIMIZER_LOG_PATH) != 0) {
+    perror("log_init");  // Only non-daemon uses perror
+    exit(1);
+  }
   LOG_INFO("%s - Started", _argv[0]);
+#endif
 
   if (global_tls_ca_init() != SUCCESS) {
     LOG_INFO("global_tls_ca_init");
