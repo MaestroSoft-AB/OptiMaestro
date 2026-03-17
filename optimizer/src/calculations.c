@@ -435,7 +435,7 @@ static inline int calc_summary_create(const Calc_Results* _Res, const Calc_Args*
   fprintf(file, "Average Spot Price: %.2f %s/kW\n", _Res->spot_prices_avg, "SEK");
   fprintf(file, "Cheapness Threshold: %.2f%%\n", _Res->cheapness_thresh * 100);
   if (_Res->solar_gains && _Res->solar_gains_deviation)
-    fprintf(file, "Average Solar Gains: %.2f kW\n", _Res->solar_gains_avg);
+      fprintf(file, "Average Solar Gains: %.2f SEK\n", _Res->solar_gains_avg);
   fprintf(file, "Data Points: %u\n", _Res->count);
   fprintf(file, "============================================================\n\n");
 

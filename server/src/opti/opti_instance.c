@@ -167,11 +167,11 @@ int osi_get_average(Osi_RequestCtx* _ctx)
   struct tm tm = *localtime(&t);
 
   char today[11]; // YYYY-MM-DD
-  strftime(today, sizeof(today), "%Y%m%d", &tm);
+  strftime(today, sizeof(today), "%Y-%m-%d", &tm);
 
   char full_filename[256];
 
-  int res = snprintf(full_filename, sizeof(full_filename), "%s%s-SP96-SE3.json", OPTI_AVERAGE_PATH,
+  int res = snprintf(full_filename, sizeof(full_filename), "%sDaily_%s_SP96_SE3_Solar.json", OPTI_AVERAGE_PATH,
                      today);
 
   if (res < 0 || (size_t)res >= sizeof(full_filename)) {
