@@ -47,7 +47,7 @@ JSON ?= 1
 CACHE_DIR := data/cache # TODO: Change to /var/cache/maestro/optimizer
 
 # Compilation flags
-CFLAGS := -std=c99 -MMD -MP -Wall -Wextra -Wfatal-errors -g \
+CFLAGS := -std=c99 -MMD -MP -Wall -Wextra -Wfatal-errors -g -pg \
 	-Iinclude \
 	-I$(MAESTRO_DIR)/modules/include \
 	-I$(MAESTRO_DIR)/utils/include \

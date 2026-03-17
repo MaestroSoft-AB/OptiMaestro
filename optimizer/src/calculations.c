@@ -28,6 +28,33 @@ typedef enum
 
 } ResultsInterval;
 
+typedef enum
+{
+  CHEAP = -1,
+  AVERAGE = 0,
+  EXPENSIVE = 1
+
+} PriceCheapness;
+
+typedef struct
+{
+  float*           spot_prices;
+  float*           spot_prices_deviation; // % deviation from daily avg
+  PriceCheapness*  spot_prices_cheapness;
+
+  float*           solar_gains; // How much we gain from solar panels
+  float*           solar_gains_deviation; // % deviation from daily avg
+
+  time_t*          timestamps;
+
+  float            cheapness_thresh; // % to consider above/below average in decimals
+  float            spot_prices_avg;
+  float            solar_gains_avg;
+
+  unsigned int     count;
+
+} Calc_Results;
+
 typedef struct
 {
   const Calc_Args*         calc_args;
@@ -36,8 +63,6 @@ typedef struct
   ResultsInterval          interval;
 
 } Calc_Thread_Args;
-
-int calc_init_ech(ECH* ech);
 
 void calc_daily_averages_threadtask(void* _context);
 
@@ -49,7 +74,9 @@ static inline int calc_results_create(Calc_Results* _Res,
   ResultsInterval _interval, // output accuracy from quarterly data
   float _avg_thresh);
 
-static inline int calc_results_json_create(Calc_Results* _Res, const char* _filename);
+static inline int calc_results_json_create(const Calc_Results* _Res, const char* _filename);
+
+static inline int calc_summary_create(const Calc_Results* _Res, const Calc_Args* _Args, const char* _filename);
 
 void calc_results_dispose(Calc_Results* _Res);
 
@@ -88,42 +115,61 @@ void calc_daily_averages_threadtask(void* _context)
   }
 
   /* Define filename */
-  int name_len = 0;
-  char filename[128];
+  int json_name_len = 0, txt_name_len = 0;
+  char filename_json[128];
+  char filename_txt[128];
   time_t t = time(NULL);
   struct tm tm = *localtime(&t);
   char today[11]; // YYYY-MM-DD
   strftime(today, sizeof(today), "%Y-%m-%d", &tm);
 
   if (W != NULL) { // With solar
-    name_len = snprintf(filename, sizeof(filename), 
+    json_name_len = snprintf(filename_json, sizeof(filename_json), 
         "%s/Daily_%s_SP%i_SE%i_Solar.json", 
+        C_Args->calcs_dir, today, epd, C_Args->price_class+1);
+    txt_name_len = snprintf(filename_txt, sizeof(filename_txt), 
+        "%s/Daily_%s_SP%i_SE%i_Solar.txt", 
         C_Args->calcs_dir, today, epd, C_Args->price_class+1);
   }
   else {
-    name_len = snprintf(filename, sizeof(filename), 
+    json_name_len = snprintf(filename_json, sizeof(filename_json), 
         "%s/Daily_%s_SP%i_SE%i.json", 
+        C_Args->calcs_dir, today, epd, C_Args->price_class+1);
+    txt_name_len = snprintf(filename_txt, sizeof(filename_txt), 
+        "%s/Daily_%s_SP%i_SE%i.txt", 
         C_Args->calcs_dir, today, epd, C_Args->price_class+1);
   }
 
-  if (name_len < 0 || (size_t)name_len >= sizeof(filename)) {
-    LOG_ERROR("Failed to create filename");
+  if (json_name_len < 0 || (size_t)json_name_len >= sizeof(filename_json)) {
+    LOG_ERROR("Failed to build filename_json");
+    return;
+  }
+  if (txt_name_len < 0 || (size_t)txt_name_len >= sizeof(filename_txt)) {
+    LOG_ERROR("Failed to build filename_txt");
     return;
   }
 
-
-  Calc_Results Res = {0};
-  if (calc_results_create(&Res, C_Args, S, W, epd, T_Args->interval, 0.25) != SUCCESS) {
+  Calc_Results Results = {0};
+  if (calc_results_create(&Results, C_Args, S, W, epd, T_Args->interval, 0.25) != SUCCESS) {
     LOG_ERROR("calc_results_create");
     return;
   }
 
-  if (calc_results_json_create(&Res, filename) != SUCCESS) {
+  if (calc_results_json_create(&Results, filename_json) != SUCCESS) {
     LOG_ERROR("calc_create_json");
-    calc_results_dispose(&Res);
+    calc_results_dispose(&Results);
     return;
   }
-  calc_results_dispose(&Res);
+  LOG_INFO("%s created!", filename_json);
+
+  if (calc_summary_create(&Results, C_Args, filename_txt) != SUCCESS) {
+    LOG_ERROR("calc_summary_create");
+    calc_results_dispose(&Results);
+    return;
+  }
+  LOG_INFO("%s created!", filename_txt);
+
+  calc_results_dispose(&Results);
 
 }
 
@@ -161,8 +207,8 @@ static inline int calc_results_create(Calc_Results* _Res,
       if (_W->values[i].timestamp == _S->prices[0].time_start)
         weather_index_start = i;
     
-    printf("weather index start: %i\n", weather_index_start);
-    printf("weather timestamp start: %li\n", _W->values[weather_index_start].timestamp);
+    // printf("weather index start: %i\n", weather_index_start);
+    // printf("weather timestamp start: %li\n", _W->values[weather_index_start].timestamp);
     if (weather_index_start < 0) {
       LOG_ERROR("No overlapping weather+spots data as input");
       return ERR_INVALID_ARG;
@@ -173,9 +219,9 @@ static inline int calc_results_create(Calc_Results* _Res,
       _Res->count = synced_weather_count / _interval;
       spot_index_start = (int)_S->price_count - synced_weather_count - 1;
     }
-    printf("synced_weather_count: %i\n",  synced_weather_count);
-    printf("spot index start: %i\n", spot_index_start);
-    printf("spot timestamp start: %li\n", _S->prices[spot_index_start].time_start);
+    // printf("synced_weather_count: %i\n",  synced_weather_count);
+    // printf("spot index start: %i\n", spot_index_start);
+    // printf("spot timestamp start: %li\n", _S->prices[spot_index_start].time_start);
   }
 
   /* Result allocations */
@@ -211,7 +257,7 @@ static inline int calc_results_create(Calc_Results* _Res,
 
   _Res->spot_prices_avg = price_sum / (_Res->count * _interval);
 
-  printf("spot prices average: %f\n", _Res->spot_prices_avg);
+  // printf("spot prices average: %f\n", _Res->spot_prices_avg);
 
   /* Solar specific */
   if (_W) {
@@ -288,28 +334,7 @@ static inline int calc_results_create(Calc_Results* _Res,
   return SUCCESS;
 }
 
-void calc_results_dispose(Calc_Results* _Res)
-{
-  if (!_Res)
-    return;
-
-  if (_Res->timestamps)
-    free(_Res->timestamps);
-  if (_Res->spot_prices_cheapness)
-    free(_Res->spot_prices_cheapness);
-  if (_Res->spot_prices_deviation)
-    free(_Res->spot_prices_deviation);
-  if (_Res->spot_prices)
-    free(_Res->spot_prices);
-  if (_Res->solar_gains)
-    free(_Res->solar_gains);
-  if (_Res->solar_gains_deviation)
-    free(_Res->solar_gains_deviation);
-
-  _Res = NULL;
-}
-
-int calc_results_json_create(Calc_Results* _Res, const char* _filename)
+static inline int calc_results_json_create(const Calc_Results* _Res, const char* _filename)
 {
   if (!_Res || !_Res->timestamps || !_Res->spot_prices || !_Res->spot_prices_cheapness || !_Res->spot_prices_deviation)
     return ERR_INVALID_ARG;
@@ -383,94 +408,88 @@ int calc_results_json_create(Calc_Results* _Res, const char* _filename)
   return SUCCESS;
 }
 
-// int calc_summary_create(Calc_Results* _Res, Calc_Args* _Args, const char* _filename)
-// {
-//   if (!_Res || !_Args || !_filename) {
-//     return ERR_INVALID_ARG;
-//   }
-//
-//   int res;
-//   FILE* f;
-//   time_t t = time(NULL);
-//   struct tm tm = *localtime(&t);
-//
-//   char today[11]; // YYYY-MM-DD
-//   strftime(today, sizeof(today), "%Y%m%d", &tm);
-//
-//   char filename[128];
-//
-//   res = snprintf(filename, sizeof(filename), "%s/%s-SP24-SE%i.txt", _Args->calcs_dir, today, _Args->price_class+1);
-//
-//   if (res < 0 || (size_t)res >= sizeof(filename)) {
-//     LOG_ERROR("Failed to create filename");
-//     return ERR_INVALID_ARG;
-//   }
-//
-//   pthread_mutex_lock(&mutex_global);
-//   f = fopen(filename, "w");
-//   enum
-//   {
-//     TIME_W = 19,
-//     AVG_W = 12,
-//     DEV_W = 8
-//   };
-//
-//   fprintf(f, "================ DAILY PRICE SUMMARY =================\n");
-//   fprintf(f, "Daily Price Average: %.4f\n", _Res->spot_prices_avg);
-//
-//   fprintf(f, "------------------------------------------------------\n");
-//   fprintf(f, "%-*s | %*s | %*s\n", TIME_W, "Hour starting", AVG_W, "Hour Avg", DEV_W, "Dev %");
-//   fprintf(f, "------------------------------------------------------\n");
-//
-//   char start_buf[32];
-//   char end_buf[32];
-//   for (unsigned int i = 0; i < _Res->count; i++) {
-//
-//     struct tm tm_start;
-//     struct tm* tmp;
-//
-//     tmp = localtime(&_Res->timestamps[i]);
-//     if (tmp)
-//       tm_start = *tmp;
-//
-//     strftime(start_buf, sizeof(start_buf), "%Y-%m-%d %H:%M:%S", &tm_start);
-//
-//     double price = (double)s->prices[i].spot_price;
-//     double deviation = ((price - daily_avg) / daily_avg) * 100.0;
-//
-//     const char* status;
-//
-//     if (_Res->spot_prices_cheapness[i] == CHEAP)
-//       status = "CHEAP";
-//     else if (_Res->spot_prices_cheapness[i] == EXPENSIVE)
-//       status = "EXPENSIVE";
-//     else
-//       status = "AVERAGE";
-//
-//     /* Solar */
-//     if (_Res->solar_gains && _Res->solar_gains_deviation) {
-//
-//     }
-//     else {
-//     
-//       fprintf(f, "%-*s | %*.3f SEK | %+*.2f\n", TIME_W, start_buf, AVG_W - 4,
-//               hour_avg, /* -4 för " SEK" */
-//               DEV_W, deviation);
-//     }
-//
-//     tmp = localtime(&s->prices[i].time_start);
-//     if (tmp)
-//       tm_start = *tmp;
-//
-//   }
-//
-//   fprintf(f, "------------------------------------------------------\n\n");
-//
-//   fclose(f);
-//   pthread_mutex_unlock(&mutex_global);
-//
-//   return SUCCESS;
-// }
+/* TODO: Fix concurrent writes, ie. better use of mutex lock */
+static inline int calc_summary_create(const Calc_Results* _Res, const Calc_Args* _Args, const char* _filename)
+{
+  if (!_Res || !_Args || !_Res->timestamps || !_Res->spot_prices || !_Res->spot_prices_deviation || !_Res->spot_prices_cheapness)
+    return ERR_INVALID_ARG;
+
+  pthread_mutex_lock(&mutex_global);
+  FILE* file = fopen(_filename, "w");
+  if (!file)
+    return ERR_FATAL;
+
+  time_t now = time(NULL);
+  char time_now_str[32];
+  strftime(time_now_str, sizeof(time_now_str), "%Y-%m-%d %H:%M:%S", localtime(&now));
+
+  /* Summary */
+  fprintf(file, "============================================================\n");
+  fprintf(file, "              ENERGY CALCULATION SUMMARY REPORT              \n");
+  fprintf(file, "============================================================\n");
+  fprintf(file, "Generated at: %s\n", time_now_str);
+  fprintf(file, "Directory:    %s\n", _Args->calcs_dir);
+  fprintf(file, "Spot Class:   %d\n", (int)_Args->price_class);
+  fprintf(file, "Currency:     %d\n", (int)_Args->currency);
+  fprintf(file, "Threads:      %d\n", _Args->max_threads);
+  fprintf(file, "Panel Size:   %d\n", _Args->panel_size);
+  fprintf(file, "------------------------------------------------------------\n");
+  fprintf(file, "Average Spot Price: %.2f %s/kW\n", _Res->spot_prices_avg, "SEK");
+  fprintf(file, "Cheapness Threshold: %.2f%%\n", _Res->cheapness_thresh * 100);
+  if (_Res->solar_gains && _Res->solar_gains_deviation)
+      fprintf(file, "Average Solar Gains: %.2f kW\n", _Res->solar_gains_avg);
+  fprintf(file, "Data Points: %u\n", _Res->count);
+  fprintf(file, "============================================================\n\n");
+
+  /* Table Header */
+  if (_Res->solar_gains && _Res->solar_gains_deviation) {
+    fprintf(file, "%-25s | %-10s | %-10s | %-10s | %-10s | %-10s\n",
+            "Timestamp", "Spot", "Dev(%)", "Cheapness", "SolarGains", "SolarDev(%)");
+    fprintf(file, "--------------------------------------------------------------------------------------------\n");
+  } else {
+    fprintf(file, "%-25s | %-10s | %-10s | %-10s\n",
+            "Timestamp", "Spot", "Dev(%)", "Cheapness");
+    fprintf(file, "---------------------------------------------------------------\n");
+  }
+
+  /* Table Row data */
+  for (unsigned int i = 0; i < _Res->count; i++) {
+    const char* ts_str = parse_epoch_to_iso_full_datetime_string(&_Res->timestamps[i], 0);
+    const char* cheap_str = NULL;
+    switch (_Res->spot_prices_cheapness[i]) {
+      case CHEAP: cheap_str = "CHEAP"; break;
+      case AVERAGE: cheap_str = "AVERAGE"; break;
+      case EXPENSIVE: cheap_str = "EXPENSIVE"; break;
+      default: cheap_str = "-"; break;
+    }
+
+    if (_Res->solar_gains && _Res->solar_gains_deviation) {
+      fprintf(file, "%-20s | %-10.2f | %-10.2f | %-10s | %-10.2f | %-10.2f\n",
+              ts_str,
+              _Res->spot_prices[i],
+              _Res->spot_prices_deviation[i],
+              cheap_str,
+              _Res->solar_gains[i],
+              _Res->solar_gains_deviation[i]);
+    } else {
+      fprintf(file, "%-20s | %-10.2f | %-10.2f | %-10s\n",
+              ts_str,
+              _Res->spot_prices[i],
+              _Res->spot_prices_deviation[i],
+              cheap_str);
+    }
+    free((void*)ts_str);
+  }
+
+  fprintf(file, "\n============================================================\n");
+  fprintf(file, "End of report.\n");
+  fprintf(file, "============================================================\n");
+
+  fclose(file);
+  pthread_mutex_unlock(&mutex_global);
+
+  return SUCCESS;
+}
 
 //TODO: Improve this shit, write proper cache fetching interfaces 
 // just based on date range, caller caring only about initing data struct
@@ -512,6 +531,27 @@ int calc_fetch_input_data(Electricity_Spots* _S, Weather* _W, Calc_Args* _Args)
   free((void*)weather_cache_path);
 
   return SUCCESS;
+}
+
+void calc_results_dispose(Calc_Results* _Res)
+{
+  if (!_Res)
+    return;
+
+  if (_Res->timestamps)
+    free(_Res->timestamps);
+  if (_Res->spot_prices_cheapness)
+    free(_Res->spot_prices_cheapness);
+  if (_Res->spot_prices_deviation)
+    free(_Res->spot_prices_deviation);
+  if (_Res->spot_prices)
+    free(_Res->spot_prices);
+  if (_Res->solar_gains)
+    free(_Res->solar_gains);
+  if (_Res->solar_gains_deviation)
+    free(_Res->solar_gains_deviation);
+
+  _Res = NULL;
 }
 
 /* --------------------------- Interface --------------------------- */
@@ -591,92 +631,3 @@ int calc_create_reports(Calc_Args* _Args)
   return 0;
 }
 
-
-
-// void calc_averages_15min_print(void* _context)
-// {
-//   if (!_context)
-//     return;
-//
-//   Calc_Thread_Args* Task_Args = (Calc_Thread_Args*)_context;
-//   Calc_Args* Calc_Args = Task_Args->calc_args;
-//   Electricity_Spots* s = Task_Args->spots;
-//
-//   if (!s || !Calc_Args || !Calc_Args->calcs_dir) {
-//     return;
-//   }
-//
-//   FILE* f;
-//   time_t t = time(NULL);
-//   struct tm tm = *localtime(&t);
-//
-//   char today[11]; // YYYY-MM-DD
-//   strftime(today, sizeof(today), "%Y%m%d", &tm);
-//
-//   char filename_96[128];
-//
-//   int res = snprintf(filename_96, sizeof(filename_96), "%s/%s-SP96-SE%i.json", Calc_Args->calcs_dir, today, Calc_Args->price_class+1);
-//
-//   if (res < 0 || (size_t)res >= sizeof(filename_96)) {
-//     LOG_ERROR("Failed to create filename_96");
-//     return;
-//   }
-//
-//   f = fopen(filename_96, "w");
-//
-//   if (!f) {
-//     LOG_ERROR("fopen");
-//     return;
-//   }
-//
-//   char start_buf[32];
-//   char end_buf[32];
-//   float daily_avg = math_get_avg_float(&s->prices->spot_price, s->price_count);
-//
-//   fprintf(f, "\n================ DAILY PRICE SUMMARY ================\n");
-//   fprintf(f, "Daily Average: %.4f\n", daily_avg);
-//
-//   fprintf(f, "--------------------------------------------------------------------------------\n");
-//   fprintf(f, "%-*s | %*s | %*s | %-*s\n", INTERVAL_W, "Interval", PRICE_W, "Price/kw", DEV_W,
-//           "Dev %", STATUS_W, "Status");
-//   fprintf(f, "--------------------------------------------------------------------------------\n");
-//
-//   for (unsigned int i = 0; i < s->price_count; i++) {
-//
-//     struct tm tm_start, tm_end;
-//     struct tm* tmp;
-//
-//     tmp = localtime(&s->prices[i].time_start);
-//     if (tmp)
-//       tm_start = *tmp;
-//
-//     tmp = localtime(&s->prices[i].time_end);
-//     if (tmp)
-//       tm_end = *tmp;
-//
-//     strftime(start_buf, sizeof(start_buf), "%Y-%m-%d %H:%M:%S", &tm_start);
-//     strftime(end_buf, sizeof(end_buf), "%Y-%m-%d %H:%M:%S", &tm_end);
-//
-//     double price = (double)s->prices[i].spot_price;
-//     double deviation = ((price - daily_avg) / daily_avg) * 100.0;
-//
-//     const char* status;
-//
-//     if (price > daily_avg * 1.1)
-//       status = "EXPENSIVE";
-//     else if (price < daily_avg * 0.9)
-//       status = "CHEAP";
-//     else
-//       status = "AVERAGE";
-//
-//     fprintf(f, "%19s - %19s%*s | %*.3f SEK | %+*.2f | %-*s\n", start_buf, end_buf,
-//             (int)(INTERVAL_W - 41), "", PRICE_W - 4, price, /* -4 för " SEK" */
-//             DEV_W, deviation, STATUS_W, status);
-//   }
-//
-//   fprintf(f,
-//           "--------------------------------------------------------------------------------\n\n");
-//
-//   fclose(f);
-//
-// }
