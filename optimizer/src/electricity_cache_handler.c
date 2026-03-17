@@ -43,14 +43,6 @@ int ech_get_spots_range(Electricity_Spots* _Spot, const char* _spots_dir,
     return res;
   }
 
-  res = sql_helper_init_schema(db);
-
-  if (res != SUCCESS) {
-    LOG_ERROR("sql_helper_init_schema (%i)", res);
-    sql_helper_close(db);
-    return res;
-  }
-
   res = sql_helper_read_spots(db, _Spot, _price_class, _currency, _start, _end);
   if (res != SUCCESS) {
     LOG_ERROR("sql_helper_read_spots (%i)", res);
@@ -139,13 +131,6 @@ int ech_update_cache(ECH* _ECH)
   // Speeds up cache
   sqlite3_exec(db, "PRAGMA journal_mode=WAL;", NULL, NULL, NULL);
   sqlite3_exec(db, "PRAGMA synchronous=NORMAL;", NULL, NULL, NULL);
-
-  res = sql_helper_init_schema(db);
-  if (res != SUCCESS) {
-    LOG_ERROR("sql_helper_init_schema (%i)", res);
-    sql_helper_close(db);
-    return res;
-  }
 
   // Try to read from cache
 

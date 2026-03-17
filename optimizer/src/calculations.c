@@ -373,14 +373,12 @@ int calc_fetch_input_data(Electricity_Spots* _S, Weather* _W, Calc_Args* _Args)
   memset(_S, 0, sizeof(Electricity_Spots));
   memset(_W, 0, sizeof(Weather));
 
-  sqlite3* db = NULL;
-  char db_path[512];
+  time_t start = epoch_now_day();
+  time_t end = start + 86400;
 
-  snprintf(db_path, sizeof(db_path), "%s/cache.db", _Args->spots_dir);
-
-  res = sql_helper_open(&db, db_path);
+  res = ech_get_spots_range(_S, _Args->spots_dir, _Args->price_class, _Args->currency, start, end);
   if (res != SUCCESS) {
-    LOG_ERROR("sql_helper_open (%i)", res);
+    LOG_ERROR("ech_get_spots_range (%i)", res);
     return res;
   }
 

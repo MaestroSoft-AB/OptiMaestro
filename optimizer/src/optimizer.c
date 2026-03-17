@@ -7,7 +7,7 @@
 #include "maestroutils/error.h"
 #include "maestroutils/file_logging.h"
 #include "maestroutils/file_utils.h"
-
+#include "sqlite_helpers.h"
 #include <pthread.h>
 #include <stdio.h>
 #include <string.h>
@@ -209,6 +209,26 @@ int optimizer_run(Optimizer* _O)
 {
   int i;
   int res;
+
+  sqlite3* db = NULL;
+  char db_path[512];
+
+  snprintf(db_path, sizeof(db_path), "%s/cache.db", _O->config.data_spots_dir);
+
+  res = sql_helper_open(&db, db_path);
+  if (res != SUCCESS) {
+    LOG_ERROR("sql_helper_open (%i)", res);
+    return res;
+  }
+
+  res = sql_helper_init_schema(db);
+  if (res != SUCCESS) {
+    LOG_ERROR("sql_helper_init_schema (%i)", res);
+    sql_helper_close(db);
+    return res;
+  }
+
+  sql_helper_close(db);
 
   /* Define cache runs with config structs */
   ECH_Conf ECH_Config[4] = {0}; // One per each price_class
