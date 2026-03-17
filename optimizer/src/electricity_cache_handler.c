@@ -144,12 +144,12 @@ int ech_update_cache(ECH* _ECH)
   }
 
   if (_ECH->spot.price_count > 0) {
-    LOG_INFO("Electricity cache up to date, loaded %d rows from db.\r\n", _ECH->spot.price_count);
+    LOG_INFO("Electricity cache up to date, loaded %d rows from db.", _ECH->spot.price_count);
     sql_helper_close(db);
     return SUCCESS;
   }
 
-  LOG_INFO("No cached electricity data found, fetching from API...\r\n");
+  LOG_INFO("No cached electricity data found, fetching from API...");
 
   res = epjn_init(&_ECH->epjn_spot);
   if (res != SUCCESS) {

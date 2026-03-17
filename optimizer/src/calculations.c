@@ -374,12 +374,17 @@ int calc_fetch_input_data(Electricity_Spots* _S, Weather* _W, Calc_Args* _Args)
   memset(_W, 0, sizeof(Weather));
 
   time_t start = epoch_now_day();
-  time_t end = start + 86400;
+  time_t end = start + 3600;
 
   res = ech_get_spots_range(_S, _Args->spots_dir, _Args->price_class, _Args->currency, start, end);
   if (res != SUCCESS) {
     LOG_ERROR("ech_get_spots_range (%i)", res);
     return res;
+  }
+
+  for (int i = 0; i < (int)_S->price_count; i++) {
+
+    printf("asd: %f\n", _S->prices[i].spot_price);
   }
 
   /* Spots cache */
