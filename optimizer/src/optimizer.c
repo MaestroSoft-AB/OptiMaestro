@@ -246,8 +246,7 @@ int optimizer_run(Optimizer* _O)
     WCH_Config[i].longitude = _O->config.longitude;
     WCH_Config[i].panel_azimuth = _O->config.panel_azimuth;
     WCH_Config[i].panel_tilt = _O->config.panel_tilt;
-    if (_O->config.data_weather_dir != NULL)
-      WCH_Config[i].data_dir = _O->config.data_weather_dir;
+    WCH_Config[i].data_dir = _O->config.data_dir;
   }
 
   /* Initiate thread pools */

@@ -2,7 +2,9 @@
 #define __SQLITE_HELPERS_H__
 
 #include "data/electricity_structs.h"
+#include "weather_cache_handler.h"
 #include <sqlite3.h>
+#include <stdbool.h>
 #include <time.h>
 
 int sql_helper_open(sqlite3** _db, const char* _path);
@@ -11,5 +13,8 @@ int sql_helper_init_schema(sqlite3* _db);
 int sql_helper_insert_spots(sqlite3* _db, const Electricity_Spots* _spot);
 int sql_helper_read_spots(sqlite3* _db, Electricity_Spots* _out, SpotPriceClass _price_class,
                           SpotCurrency _currency, time_t _start, time_t _end);
-
+int sql_helper_insert_weather(sqlite3* _db, const Weather* _W, bool _forecast);
+int sql_helper_read_weather(sqlite3* _db, Weather* _out, double _latitude, double _longitude,
+                            int _panel_tilt, unsigned int _panel_azimuth, bool _forecast,
+                            time_t _start, time_t _end);
 #endif

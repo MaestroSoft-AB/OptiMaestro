@@ -1,13 +1,12 @@
 #include "weather_cache_handler.h"
 #include "data/weather_structs.h"
 #include "maestroutils/error.h"
-#include "maestroutils/time_utils.h"
 #include "maestroutils/file_utils.h"
 #include "maestroutils/time_utils.h"
 #define MAESTROUTILS_WITH_CJSON 1 // get rid of stupid lsp error
-#include "maestroutils/json_utils.h"
 #include "maestroutils/file_logging.h"
-
+#include "maestroutils/json_utils.h"
+#include "sqlite_helpers.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,11 +34,9 @@ int wch_init(WCH* _WCH, const WCH_Conf* _Conf)
   printf("WCH data dir: %s\n", _Conf->data_dir);
 
   if (!_Conf->data_dir) {
-    LOG_WARN("No weather cache dir found, setting fallback: %s", 
-        WCH_BASE_CACHE_PATH_FALLBACK);
+    LOG_WARN("No weather cache dir found, setting fallback: %s", WCH_BASE_CACHE_PATH_FALLBACK);
     create_directory_if_not_exists(WCH_BASE_CACHE_PATH_FALLBACK);
-  }
-  else {
+  } else {
     create_directory_if_not_exists(_Conf->data_dir);
     _WCH->conf.data_dir = _Conf->data_dir;
   }
@@ -57,76 +54,126 @@ int wch_update_cache(WCH* _WCH)
 {
   LOG_INFO("Updating weather cache...\r\n");
 
-  /* Set conf weather vars */
-  _WCH->weather.latitude  = _WCH->conf.latitude; 
-  _WCH->weather.longitude = _WCH->conf.longitude; 
-  _WCH->weather.panel_tilt  = _WCH->conf.panel_tilt; 
-  _WCH->weather.panel_azimuth = _WCH->conf.panel_azimuth; 
+  _WCH->weather.latitude = _WCH->conf.latitude;
+  _WCH->weather.longitude = _WCH->conf.longitude;
+  _WCH->weather.panel_tilt = _WCH->conf.panel_tilt;
+  _WCH->weather.panel_azimuth = _WCH->conf.panel_azimuth;
 
-  /* Free previous path allocation if exists */
-  if (_WCH->data_path != NULL)
-    free((void*)_WCH->data_path);
-
-  /* Define cache path */
-  time_t now = time(NULL);
-
-  if (!_WCH->conf.data_dir)  // fallback data dir
-    _WCH->data_path = wch_get_cache_json_filepath(WCH_BASE_CACHE_PATH_FALLBACK, 
-        now, _WCH->conf.forecast);
-  else
-    _WCH->data_path = wch_get_cache_json_filepath(_WCH->conf.data_dir, 
-        now, _WCH->conf.forecast);
-  
-  if (!_WCH->data_path) {
-    LOG_ERROR("wch_set_cache_filepath");
-    return ERR_FATAL;
-  }
-
-  /* TODO: Caching+validating - Ideally not just based on cache name 
-   * since we don't want files that overlap in data 
-   * Maybe just start on implementing HDF5/sqlite tbh */
-
-  /* Get weather data from external API */
-  /* TODO: better interval handling and ability to get specific date range 
-   * (so we can create a historical archive) */
   if (_WCH->conf.forecast) {
-    if (meteo_get_15_minutely(&_WCH->weather, 
-                              (float)_WCH->conf.latitude, 
-                              (float)_WCH->conf.longitude,
-                              (float)_WCH->conf.panel_azimuth,
+    if (meteo_get_15_minutely(&_WCH->weather, (float)_WCH->conf.latitude,
+                              (float)_WCH->conf.longitude, (float)_WCH->conf.panel_azimuth,
                               (float)_WCH->conf.panel_tilt) != 0) {
-      LOG_ERROR("meteo_get_15_minutes");
+      LOG_ERROR("meteo_get_15_minutely");
       return ERR_INTERNAL;
     }
-  }
-  else {
-    if (meteo_get_current(&_WCH->weather, 
-                          (float)_WCH->conf.latitude, 
-                          (float)_WCH->conf.longitude,
-                          (float)_WCH->conf.panel_azimuth,
-                          (float)_WCH->conf.panel_tilt) != 0) {
+  } else {
+    if (meteo_get_current(&_WCH->weather, (float)_WCH->conf.latitude, (float)_WCH->conf.longitude,
+                          (float)_WCH->conf.panel_azimuth, (float)_WCH->conf.panel_tilt) != 0) {
       LOG_ERROR("meteo_get_current");
       return ERR_INTERNAL;
     }
   }
 
-  printf("Weather Cache updated! Example:\r\n");
-  printf("time=%lu   radiation_DHI=%f%s   temp=%f %s\r\n", _WCH->weather.values[0].timestamp, _WCH->weather.values[0].radiation_diffuse, _WCH->weather.radiation_unit, _WCH->weather.values[0].temperature, _WCH->weather.temperature_unit);
+  sqlite3* db = NULL;
+  char db_path[512];
 
-  /* Write parsed weather to cache */
-  if (wch_write_cache_json(&_WCH->weather, _WCH->data_path) != 0) {
-    LOG_ERROR("wch_write_cache_json");
-    return ERR_INTERNAL;
+  if (!_WCH->conf.data_dir) {
+    snprintf(db_path, sizeof(db_path), "%s/cache.db", WCH_BASE_CACHE_PATH_FALLBACK);
+  } else {
+    snprintf(db_path, sizeof(db_path), "%s/cache.db", _WCH->conf.data_dir);
   }
 
+  int res = sql_helper_open(&db, db_path);
+  if (res != SUCCESS) {
+    LOG_ERROR("sql_helper_open (%i)", res);
+    return res;
+  }
+  printf("weather count before insert: %d\n", _WCH->weather.count);
+
+  res = sql_helper_insert_weather(db, &_WCH->weather, _WCH->conf.forecast);
+  printf("insert weather result: %d, count: %d\n", res, _WCH->weather.count);
+  if (res != SUCCESS) {
+    LOG_ERROR("sql_helper_insert_weather (%i)", res);
+    sql_helper_close(db);
+    return res;
+  }
+
+  sql_helper_close(db);
+
   return SUCCESS;
+
+  // LOG_INFO("Updating weather cache...\r\n");
+  //
+  // /* Set conf weather vars */
+  // _WCH->weather.latitude  = _WCH->conf.latitude;
+  // _WCH->weather.longitude = _WCH->conf.longitude;
+  // _WCH->weather.panel_tilt  = _WCH->conf.panel_tilt;
+  // _WCH->weather.panel_azimuth = _WCH->conf.panel_azimuth;
+  //
+  // /* Free previous path allocation if exists */
+  // if (_WCH->data_path != NULL)
+  //   free((void*)_WCH->data_path);
+  //
+  // /* Define cache path */
+  // time_t now = time(NULL);
+  //
+  // if (!_WCH->conf.data_dir)  // fallback data dir
+  //   _WCH->data_path = wch_get_cache_json_filepath(WCH_BASE_CACHE_PATH_FALLBACK,
+  //       now, _WCH->conf.forecast);
+  // else
+  //   _WCH->data_path = wch_get_cache_json_filepath(_WCH->conf.data_dir,
+  //       now, _WCH->conf.forecast);
+  //
+  // if (!_WCH->data_path) {
+  //   LOG_ERROR("wch_set_cache_filepath");
+  //   return ERR_FATAL;
+  // }
+  //
+  // /* TODO: Caching+validating - Ideally not just based on cache name
+  //  * since we don't want files that overlap in data
+  //  * Maybe just start on implementing HDF5/sqlite tbh */
+  //
+  // /* Get weather data from external API */
+  // /* TODO: better interval handling and ability to get specific date range
+  //  * (so we can create a historical archive) */
+  // if (_WCH->conf.forecast) {
+  //   if (meteo_get_15_minutely(&_WCH->weather,
+  //                             (float)_WCH->conf.latitude,
+  //                             (float)_WCH->conf.longitude,
+  //                             (float)_WCH->conf.panel_azimuth,
+  //                             (float)_WCH->conf.panel_tilt) != 0) {
+  //     LOG_ERROR("meteo_get_15_minutes");
+  //     return ERR_INTERNAL;
+  //   }
+  // }
+  // else {
+  //   if (meteo_get_current(&_WCH->weather,
+  //                         (float)_WCH->conf.latitude,
+  //                         (float)_WCH->conf.longitude,
+  //                         (float)_WCH->conf.panel_azimuth,
+  //                         (float)_WCH->conf.panel_tilt) != 0) {
+  //     LOG_ERROR("meteo_get_current");
+  //     return ERR_INTERNAL;
+  //   }
+  // }
+  //
+  // printf("Weather Cache updated! Example:\r\n");
+  // printf("time=%lu   radiation_DHI=%f%s   temp=%f %s\r\n", _WCH->weather.values[0].timestamp,
+  // _WCH->weather.values[0].radiation_diffuse, _WCH->weather.radiation_unit,
+  // _WCH->weather.values[0].temperature, _WCH->weather.temperature_unit);
+  //
+  // /* Write parsed weather to cache */
+  // if (wch_write_cache_json(&_WCH->weather, _WCH->data_path) != 0) {
+  //   LOG_ERROR("wch_write_cache_json");
+  //   return ERR_INTERNAL;
+  // }
+  //
+  // return SUCCESS;
 }
 
 /* Define and return the cache path from given parameters */
 /* TODO: create recursive directories for year/month */
-char* wch_get_cache_json_filepath(const char*    _base_path,
-                             time_t         _start_date,
-                             bool           _forecast)
+char* wch_get_cache_json_filepath(const char* _base_path, time_t _start_date, bool _forecast)
 {
   char path_buf[512];
 
@@ -138,15 +185,9 @@ char* wch_get_cache_json_filepath(const char*    _base_path,
   /* Build path name */
   size_t path_len;
   if (_forecast) {
-    path_len = snprintf(path_buf, sizeof(path_buf), 
-            "%s/forecast-%s.json",
-            _base_path,
-            date_str);
-  } 
-  else {
-    path_len = snprintf(path_buf, sizeof(path_buf), 
-            "%s/current.json",
-            _base_path); 
+    path_len = snprintf(path_buf, sizeof(path_buf), "%s/forecast-%s.json", _base_path, date_str);
+  } else {
+    path_len = snprintf(path_buf, sizeof(path_buf), "%s/current.json", _base_path);
   }
 
   free((void*)date_str);
@@ -165,7 +206,7 @@ int wch_validate_cache(const char* _cache_path)
 {
   if (!_cache_path)
     return ERR_INVALID_ARG;
-  
+
   if (file_exists(_cache_path)) {
     // TODO: Actually validate something?
     return SUCCESS;
@@ -177,12 +218,12 @@ int wch_write_cache_json(const Weather* _Weather, const char* _cache_path)
 {
   if (!_Weather || !_cache_path)
     return ERR_INVALID_ARG;
- 
+
   cJSON* Json_Root = cJSON_CreateObject();
   if (Json_Root == NULL) {
     const char* err = cJSON_GetErrorPtr();
-    if (err != NULL) 
-      LOG_ERROR("cJSON: %s\n", err); //TODO: Logger
+    if (err != NULL)
+      LOG_ERROR("cJSON: %s\n", err); // TODO: Logger
     return ERR_JSON_PARSE;
   }
 
@@ -205,7 +246,7 @@ int wch_write_cache_json(const Weather* _Weather, const char* _cache_path)
 
   /* Create values array to contain data for the day */
   cJSON* Json_Values = cJSON_AddArrayToObject(Json_Root, "values");
-  
+
   unsigned int i;
   for (i = 0; i < _Weather->count; i++) {
     Weather_Values Vals = _Weather->values[i];
@@ -234,7 +275,7 @@ int wch_write_cache_json(const Weather* _Weather, const char* _cache_path)
   LOG_INFO("\r\n--- WCH writing to %s ---\r\n", _cache_path);
 
   if (write_string_to_file(json_str, _cache_path) != 0)
-    fprintf(stderr, "Failed to write string \"%p\" to cache \"%p\"\n", json_str, _cache_path); 
+    fprintf(stderr, "Failed to write string \"%p\" to cache \"%p\"\n", json_str, _cache_path);
 
   free(json_str);
 
@@ -270,17 +311,17 @@ int wch_read_cache_json(Weather* _W, const char* _cache_path)
 
   cJSON* Json_Meta = cJSON_GetObjectItemCaseSensitive(Json_Root, "meta");
   if (Json_Meta && cJSON_IsObject(Json_Meta)) {
-    _W->update_interval    = json_get_int(Json_Meta, "interval_minutes");
-    _W->latitude           = json_get_double(Json_Meta, "latitude");
-    _W->longitude          = json_get_double(Json_Meta, "longitude");
-    _W->panel_azimuth      = json_get_double(Json_Meta, "solar_panel_azimuth");
-    _W->panel_tilt         = json_get_double(Json_Meta, "solar_panel_tilt");
+    _W->update_interval = json_get_int(Json_Meta, "interval_minutes");
+    _W->latitude = json_get_double(Json_Meta, "latitude");
+    _W->longitude = json_get_double(Json_Meta, "longitude");
+    _W->panel_azimuth = json_get_double(Json_Meta, "solar_panel_azimuth");
+    _W->panel_tilt = json_get_double(Json_Meta, "solar_panel_tilt");
 
-    _W->temperature_unit   = strdup(json_get_string(Json_Meta, "temperature_unit"));
-    _W->windspeed_unit     = strdup(json_get_string(Json_Meta, "windspeed_unit"));
+    _W->temperature_unit = strdup(json_get_string(Json_Meta, "temperature_unit"));
+    _W->windspeed_unit = strdup(json_get_string(Json_Meta, "windspeed_unit"));
     _W->precipitation_unit = strdup(json_get_string(Json_Meta, "precipitation_unit"));
     _W->winddirection_unit = strdup(json_get_string(Json_Meta, "winddirection_unit"));
-    _W->radiation_unit     = strdup(json_get_string(Json_Meta, "radiation_unit"));
+    _W->radiation_unit = strdup(json_get_string(Json_Meta, "radiation_unit"));
   }
 
   cJSON* Json_Values = cJSON_GetObjectItemCaseSensitive(Json_Root, "values");
@@ -299,7 +340,8 @@ int wch_read_cache_json(Weather* _W, const char* _cache_path)
 
     for (unsigned int i = 0; i < count; ++i) {
       cJSON* Json_Object = cJSON_GetArrayItem(Json_Values, i);
-      if (!cJSON_IsObject(Json_Object)) continue;
+      if (!cJSON_IsObject(Json_Object))
+        continue;
 
       Weather_Values Vals;
       memset(&Vals, 0, sizeof(Vals));
@@ -308,16 +350,16 @@ int wch_read_cache_json(Weather* _W, const char* _cache_path)
       if (timestamp_str && strcmp(timestamp_str, "Unknown") != 0)
         Vals.timestamp = parse_iso_full_datetime_string_to_epoch(timestamp_str);
 
-      Vals.temperature           = json_get_double(Json_Object, "temperature");
-      Vals.windspeed             = json_get_double(Json_Object, "windspeed");
+      Vals.temperature = json_get_double(Json_Object, "temperature");
+      Vals.windspeed = json_get_double(Json_Object, "windspeed");
       Vals.winddirection_azimuth = json_get_double(Json_Object, "winddirection");
-      Vals.precipitation         = json_get_double(Json_Object, "precipitation");
-      Vals.radiation_direct      = json_get_double(Json_Object, "radiation_direct");
-      Vals.radiation_direct_n    = json_get_double(Json_Object, "radiation_direct_n");
-      Vals.radiation_diffuse     = json_get_double(Json_Object, "radiation_diffuse");
-      Vals.radiation_shortwave   = json_get_double(Json_Object, "radiation_shortwave");
-      Vals.radiation_tilted      = json_get_double(Json_Object, "radiation_tilted");
-      Vals.sun_duration          = json_get_double(Json_Object, "sun_duration");
+      Vals.precipitation = json_get_double(Json_Object, "precipitation");
+      Vals.radiation_direct = json_get_double(Json_Object, "radiation_direct");
+      Vals.radiation_direct_n = json_get_double(Json_Object, "radiation_direct_n");
+      Vals.radiation_diffuse = json_get_double(Json_Object, "radiation_diffuse");
+      Vals.radiation_shortwave = json_get_double(Json_Object, "radiation_shortwave");
+      Vals.radiation_tilted = json_get_double(Json_Object, "radiation_tilted");
+      Vals.sun_duration = json_get_double(Json_Object, "sun_duration");
 
       _W->values[i] = Vals;
     }
@@ -332,15 +374,15 @@ int wch_read_cache_json(Weather* _W, const char* _cache_path)
 void wch_weather_dispose(Weather* _W)
 {
   if (_W != NULL) {
-    if (_W->temperature_unit    != NULL)
+    if (_W->temperature_unit != NULL)
       free((void*)_W->temperature_unit);
-    if (_W->windspeed_unit      != NULL)
+    if (_W->windspeed_unit != NULL)
       free((void*)_W->windspeed_unit);
-    if (_W->precipitation_unit  != NULL)
+    if (_W->precipitation_unit != NULL)
       free((void*)_W->precipitation_unit);
-    if (_W->winddirection_unit  != NULL)
+    if (_W->winddirection_unit != NULL)
       free((void*)_W->winddirection_unit);
-    if (_W->radiation_unit      != NULL)
+    if (_W->radiation_unit != NULL)
       free((void*)_W->radiation_unit);
 
     if (_W->values != NULL)
