@@ -505,7 +505,8 @@ int calc_fetch_input_data(Electricity_Spots* _S, Weather* _W, Calc_Args* _Args)
   time_t start = epoch_now_day() - 3600;
   time_t end = start + 86400;
 
-  res = ech_get_spots_range(_S, _Args->data_dir, _Args->price_class, _Args->currency, start, end);
+  res = ech_get_spots_range(_Args->sqlhelper, _S, _Args->data_dir, _Args->price_class,
+                            _Args->currency, start, end);
   if (res != SUCCESS) {
     LOG_ERROR("ech_get_spots_range (%i)", res);
     return res;

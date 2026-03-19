@@ -42,7 +42,7 @@ typedef struct
 {
   Optimizer_Config config;
   Thread_Pool* thread_pool;
-
+  SqlHelper sqlhelper;
 } Optimizer;
 
 /* ========================== INTERFACE ========================== */

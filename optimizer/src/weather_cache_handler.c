@@ -46,6 +46,7 @@ int wch_init(WCH* _WCH, const WCH_Conf* _Conf)
   _WCH->conf.longitude = _Conf->longitude;
   _WCH->conf.panel_azimuth = _Conf->panel_azimuth;
   _WCH->conf.panel_tilt = _Conf->panel_tilt;
+  _WCH->conf.sqlhelper = _Conf->sqlhelper;
 
   return SUCCESS;
 }
@@ -74,102 +75,83 @@ int wch_update_cache(WCH* _WCH)
     }
   }
 
-  sqlite3* db = NULL;
-  char db_path[512];
-
-  if (!_WCH->conf.data_dir) {
-    snprintf(db_path, sizeof(db_path), "%s/cache.db", WCH_BASE_CACHE_PATH_FALLBACK);
-  } else {
-    snprintf(db_path, sizeof(db_path), "%s/cache.db", _WCH->conf.data_dir);
-  }
-
-  int res = sql_helper_open(&db, db_path);
-  if (res != SUCCESS) {
-    LOG_ERROR("sql_helper_open (%i)", res);
-    return res;
-  }
-  printf("weather count before insert: %d\n", _WCH->weather.count);
-
-  res = sql_helper_insert_weather(db, &_WCH->weather, _WCH->conf.forecast);
+  int res = sql_helper_insert_weather(_WCH->sqlhelper, &_WCH->weather, _WCH->conf.forecast);
   printf("insert weather result: %d, count: %d\n", res, _WCH->weather.count);
   if (res != SUCCESS) {
     LOG_ERROR("sql_helper_insert_weather (%i)", res);
-    sql_helper_close(db);
     return res;
   }
 
-  sql_helper_close(db);
-
   return SUCCESS;
-
-  // LOG_INFO("Updating weather cache...\r\n");
-  //
-  // /* Set conf weather vars */
-  // _WCH->weather.latitude  = _WCH->conf.latitude;
-  // _WCH->weather.longitude = _WCH->conf.longitude;
-  // _WCH->weather.panel_tilt  = _WCH->conf.panel_tilt;
-  // _WCH->weather.panel_azimuth = _WCH->conf.panel_azimuth;
-  //
-  // /* Free previous path allocation if exists */
-  // if (_WCH->data_path != NULL)
-  //   free((void*)_WCH->data_path);
-  //
-  // /* Define cache path */
-  // time_t now = time(NULL);
-  //
-  // if (!_WCH->conf.data_dir)  // fallback data dir
-  //   _WCH->data_path = wch_get_cache_json_filepath(WCH_BASE_CACHE_PATH_FALLBACK,
-  //       now, _WCH->conf.forecast);
-  // else
-  //   _WCH->data_path = wch_get_cache_json_filepath(_WCH->conf.data_dir,
-  //       now, _WCH->conf.forecast);
-  //
-  // if (!_WCH->data_path) {
-  //   LOG_ERROR("wch_set_cache_filepath");
-  //   return ERR_FATAL;
-  // }
-  //
-  // /* TODO: Caching+validating - Ideally not just based on cache name
-  //  * since we don't want files that overlap in data
-  //  * Maybe just start on implementing HDF5/sqlite tbh */
-  //
-  // /* Get weather data from external API */
-  // /* TODO: better interval handling and ability to get specific date range
-  //  * (so we can create a historical archive) */
-  // if (_WCH->conf.forecast) {
-  //   if (meteo_get_15_minutely(&_WCH->weather,
-  //                             (float)_WCH->conf.latitude,
-  //                             (float)_WCH->conf.longitude,
-  //                             (float)_WCH->conf.panel_azimuth,
-  //                             (float)_WCH->conf.panel_tilt) != 0) {
-  //     LOG_ERROR("meteo_get_15_minutes");
-  //     return ERR_INTERNAL;
-  //   }
-  // }
-  // else {
-  //   if (meteo_get_current(&_WCH->weather,
-  //                         (float)_WCH->conf.latitude,
-  //                         (float)_WCH->conf.longitude,
-  //                         (float)_WCH->conf.panel_azimuth,
-  //                         (float)_WCH->conf.panel_tilt) != 0) {
-  //     LOG_ERROR("meteo_get_current");
-  //     return ERR_INTERNAL;
-  //   }
-  // }
-  //
-  // printf("Weather Cache updated! Example:\r\n");
-  // printf("time=%lu   radiation_DHI=%f%s   temp=%f %s\r\n", _WCH->weather.values[0].timestamp,
-  // _WCH->weather.values[0].radiation_diffuse, _WCH->weather.radiation_unit,
-  // _WCH->weather.values[0].temperature, _WCH->weather.temperature_unit);
-  //
-  // /* Write parsed weather to cache */
-  // if (wch_write_cache_json(&_WCH->weather, _WCH->data_path) != 0) {
-  //   LOG_ERROR("wch_write_cache_json");
-  //   return ERR_INTERNAL;
-  // }
-  //
-  // return SUCCESS;
 }
+// LOG_INFO("Updating weather cache...\r\n");
+//
+// /* Set conf weather vars */
+// _WCH->weather.latitude  = _WCH->conf.latitude;
+// _WCH->weather.longitude = _WCH->conf.longitude;
+// _WCH->weather.panel_tilt  = _WCH->conf.panel_tilt;
+// _WCH->weather.panel_azimuth = _WCH->conf.panel_azimuth;
+//
+// /* Free previous path allocation if exists */
+// if (_WCH->data_path != NULL)
+//   free((void*)_WCH->data_path);
+//
+// /* Define cache path */
+// time_t now = time(NULL);
+//
+// if (!_WCH->conf.data_dir)  // fallback data dir
+//   _WCH->data_path = wch_get_cache_json_filepath(WCH_BASE_CACHE_PATH_FALLBACK,
+//       now, _WCH->conf.forecast);
+// else
+//   _WCH->data_path = wch_get_cache_json_filepath(_WCH->conf.data_dir,
+//       now, _WCH->conf.forecast);
+//
+// if (!_WCH->data_path) {
+//   LOG_ERROR("wch_set_cache_filepath");
+//   return ERR_FATAL;
+// }
+//
+// /* TODO: Caching+validating - Ideally not just based on cache name
+//  * since we don't want files that overlap in data
+//  * Maybe just start on implementing HDF5/sqlite tbh */
+//
+// /* Get weather data from external API */
+// /* TODO: better interval handling and ability to get specific date range
+//  * (so we can create a historical archive) */
+// if (_WCH->conf.forecast) {
+//   if (meteo_get_15_minutely(&_WCH->weather,
+//                             (float)_WCH->conf.latitude,
+//                             (float)_WCH->conf.longitude,
+//                             (float)_WCH->conf.panel_azimuth,
+//                             (float)_WCH->conf.panel_tilt) != 0) {
+//     LOG_ERROR("meteo_get_15_minutes");
+//     return ERR_INTERNAL;
+//   }
+// }
+// else {
+//   if (meteo_get_current(&_WCH->weather,
+//                         (float)_WCH->conf.latitude,
+//                         (float)_WCH->conf.longitude,
+//                         (float)_WCH->conf.panel_azimuth,
+//                         (float)_WCH->conf.panel_tilt) != 0) {
+//     LOG_ERROR("meteo_get_current");
+//     return ERR_INTERNAL;
+//   }
+// }
+//
+// printf("Weather Cache updated! Example:\r\n");
+// printf("time=%lu   radiation_DHI=%f%s   temp=%f %s\r\n", _WCH->weather.values[0].timestamp,
+// _WCH->weather.values[0].radiation_diffuse, _WCH->weather.radiation_unit,
+// _WCH->weather.values[0].temperature, _WCH->weather.temperature_unit);
+//
+// /* Write parsed weather to cache */
+// if (wch_write_cache_json(&_WCH->weather, _WCH->data_path) != 0) {
+//   LOG_ERROR("wch_write_cache_json");
+//   return ERR_INTERNAL;
+// }
+//
+// return SUCCESS;
+//}
 
 /* Define and return the cache path from given parameters */
 /* TODO: create recursive directories for year/month */

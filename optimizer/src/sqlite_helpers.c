@@ -7,25 +7,42 @@
 
 #define SQL_CHECK_DB(_db, _msg) fprintf(stderr, "[SQL] %s: %s\n", _msg, sqlite3_errmsg(_db))
 
-int sql_helper_open(sqlite3** _db, const char* _path)
+int sql_helper_init(SqlHelper* _H)
 {
-  if (!_db || !_path) {
+  if (!_H) {
     return ERR_INVALID_ARG;
   }
 
-  if (sqlite3_open(_path, _db) != SQLITE_OK) {
+  _H->db = NULL;
+
+  if (pthread_mutex_init(&_H->mutex, NULL) != 0) {
     return ERR_FATAL;
   }
 
   return SUCCESS;
 }
 
-int sql_helper_init_schema(sqlite3* _db)
+int sql_helper_open(SqlHelper* _H, const char* _path)
 {
-  if (!_db) {
+  if (!_H || !_path) {
     return ERR_INVALID_ARG;
   }
-  sqlite3_exec(_db, "PRAGMA foreign_keys = ON;", NULL, NULL, NULL);
+
+  pthread_mutex_lock(&_H->mutex);
+
+  if (sqlite3_open(_path, &_H->db) != SQLITE_OK) {
+    pthread_mutex_unlock(&_H->mutex);
+    return ERR_FATAL;
+  }
+  pthread_mutex_unlock(&_H->mutex);
+  return SUCCESS;
+}
+
+int sql_helper_init_schema(SqlHelper* _H)
+{
+  if (!_H) {
+    return ERR_INVALID_ARG;
+  }
 
   const char* sql =
       /* Electricity spots */
@@ -79,22 +96,26 @@ int sql_helper_init_schema(sqlite3* _db)
       "CREATE INDEX IF NOT EXISTS idx_weather_values_series_time "
       "ON weather_values(series_id, timestamp);";
 
+  pthread_mutex_lock(&_H->mutex);
+  sqlite3_exec(_H->db, "PRAGMA foreign_keys = ON;", NULL, NULL, NULL);
   char* err = NULL;
 
-  if (sqlite3_exec(_db, sql, NULL, NULL, &err) != SQLITE_OK) {
+  if (sqlite3_exec(_H->db, sql, NULL, NULL, &err) != SQLITE_OK) {
     if (err) {
       fprintf(stderr, "sqlite error: %s\n", err);
       sqlite3_free(err);
     }
+    pthread_mutex_unlock(&_H->mutex);
     return ERR_FATAL;
   }
-
+  pthread_mutex_unlock(&_H->mutex);
   return SUCCESS;
 }
-static int sql_helper_get_or_create_weather_series(sqlite3* _db, const Weather* _W, bool _forecast,
+
+static int sql_helper_get_or_create_weather_series(SqlHelper* _H, const Weather* _W, bool _forecast,
                                                    sqlite3_int64* _series_id)
 {
-  if (!_db || !_W || !_series_id) {
+  if (!_H || !_H->db || !_W || !_series_id) {
     return ERR_INVALID_ARG;
   }
 
@@ -113,8 +134,11 @@ static int sql_helper_get_or_create_weather_series(sqlite3* _db, const Weather* 
       " radiation_unit = excluded.radiation_unit;";
 
   sqlite3_stmt* stmt = NULL;
-  if (sqlite3_prepare_v2(_db, insert_sql, -1, &stmt, NULL) != SQLITE_OK) {
-    SQL_CHECK_DB(_db, "prepare weather_series insert failed");
+
+  pthread_mutex_lock(&_H->mutex);
+  if (sqlite3_prepare_v2(_H->db, insert_sql, -1, &stmt, NULL) != SQLITE_OK) {
+    SQL_CHECK_DB(_H->db, "prepare weather_series insert failed");
+    pthread_mutex_unlock(&_H->mutex);
     return ERR_FATAL;
   }
 
@@ -134,8 +158,9 @@ static int sql_helper_get_or_create_weather_series(sqlite3* _db, const Weather* 
   sqlite3_bind_text(stmt, 11, _W->radiation_unit ? _W->radiation_unit : "", -1, SQLITE_STATIC);
 
   if (sqlite3_step(stmt) != SQLITE_DONE) {
-    SQL_CHECK_DB(_db, "step weather_series insert failed");
+    SQL_CHECK_DB(_H->db, "step weather_series insert failed");
     sqlite3_finalize(stmt);
+    pthread_mutex_unlock(&_H->mutex);
     return ERR_FATAL;
   }
 
@@ -145,7 +170,8 @@ static int sql_helper_get_or_create_weather_series(sqlite3* _db, const Weather* 
       "SELECT id FROM weather_series "
       "WHERE latitude=? AND longitude=? AND panel_tilt=? AND panel_azimuth=? AND forecast=?;";
 
-  if (sqlite3_prepare_v2(_db, select_sql, -1, &stmt, NULL) != SQLITE_OK) {
+  if (sqlite3_prepare_v2(_H->db, select_sql, -1, &stmt, NULL) != SQLITE_OK) {
+    pthread_mutex_unlock(&_H->mutex);
     return ERR_FATAL;
   }
 
@@ -157,25 +183,28 @@ static int sql_helper_get_or_create_weather_series(sqlite3* _db, const Weather* 
 
   if (sqlite3_step(stmt) != SQLITE_ROW) {
     sqlite3_finalize(stmt);
+    pthread_mutex_unlock(&_H->mutex);
     return ERR_NOT_FOUND;
   }
 
   *_series_id = sqlite3_column_int64(stmt, 0);
   sqlite3_finalize(stmt);
 
+  pthread_mutex_unlock(&_H->mutex);
+
   return SUCCESS;
 }
 
-int sql_helper_insert_weather(sqlite3* _db, const Weather* _W, bool _forecast)
+int sql_helper_insert_weather(SqlHelper* _H, const Weather* _W, bool _forecast)
 {
-  if (!_db || !_W || !_W->values || _W->count == 0) {
+  if (!_H || !_H->db || !_W || !_W->values || _W->count == 0) {
     return ERR_INVALID_ARG;
   }
 
   int res;
   sqlite3_int64 series_id = 0;
 
-  res = sql_helper_get_or_create_weather_series(_db, _W, _forecast, &series_id);
+  res = sql_helper_get_or_create_weather_series(_H, _W, _forecast, &series_id);
   if (res != SUCCESS) {
     return res;
   }
@@ -199,12 +228,15 @@ int sql_helper_insert_weather(sqlite3* _db, const Weather* _W, bool _forecast)
                     " sun_duration = excluded.sun_duration;";
 
   sqlite3_stmt* stmt = NULL;
-  if (sqlite3_prepare_v2(_db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-    SQL_CHECK_DB(_db, "prepare weather_values failed");
+
+  pthread_mutex_lock(&_H->mutex);
+  if (sqlite3_prepare_v2(_H->db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+    SQL_CHECK_DB(_H->db, "prepare weather_values failed");
+    pthread_mutex_unlock(&_H->mutex);
     return ERR_FATAL;
   }
 
-  sqlite3_exec(_db, "BEGIN;", NULL, NULL, NULL);
+  sqlite3_exec(_H->db, "BEGIN;", NULL, NULL, NULL);
 
   for (unsigned int i = 0; i < _W->count; i++) {
     const Weather_Values* v = &_W->values[i];
@@ -223,9 +255,10 @@ int sql_helper_insert_weather(sqlite3* _db, const Weather* _W, bool _forecast)
     sqlite3_bind_double(stmt, 12, v->sun_duration);
 
     if (sqlite3_step(stmt) != SQLITE_DONE) {
-      SQL_CHECK_DB(_db, "step weather_values failed");
-      sqlite3_exec(_db, "ROLLBACK;", NULL, NULL, NULL);
+      SQL_CHECK_DB(_H->db, "step weather_values failed");
+      sqlite3_exec(_H->db, "ROLLBACK;", NULL, NULL, NULL);
       sqlite3_finalize(stmt);
+      pthread_mutex_unlock(&_H->mutex);
       return ERR_FATAL;
     }
 
@@ -233,17 +266,19 @@ int sql_helper_insert_weather(sqlite3* _db, const Weather* _W, bool _forecast)
     sqlite3_clear_bindings(stmt);
   }
 
-  sqlite3_exec(_db, "COMMIT;", NULL, NULL, NULL);
+  sqlite3_exec(_H->db, "COMMIT;", NULL, NULL, NULL);
   sqlite3_finalize(stmt);
+
+  pthread_mutex_unlock(&_H->mutex);
 
   return SUCCESS;
 }
 
-int sql_helper_read_weather(sqlite3* _db, Weather* _out, double _latitude, double _longitude,
+int sql_helper_read_weather(SqlHelper* _H, Weather* _out, double _latitude, double _longitude,
                             int _panel_tilt, unsigned int _panel_azimuth, bool _forecast,
                             time_t _start, time_t _end)
 {
-  if (!_db || !_out) {
+  if (!_H || !_H->db || !_out) {
     return ERR_INVALID_ARG;
   }
 
@@ -256,7 +291,9 @@ int sql_helper_read_weather(sqlite3* _db, Weather* _out, double _latitude, doubl
       "FROM weather_series "
       "WHERE latitude=? AND longitude=? AND panel_tilt=? AND panel_azimuth=? AND forecast=?;";
 
-  if (sqlite3_prepare_v2(_db, meta_sql, -1, &stmt, NULL) != SQLITE_OK) {
+  pthread_mutex_lock(&_H->mutex);
+  if (sqlite3_prepare_v2(_H->db, meta_sql, -1, &stmt, NULL) != SQLITE_OK) {
+    pthread_mutex_unlock(&_H->mutex);
     return ERR_FATAL;
   }
 
@@ -269,6 +306,8 @@ int sql_helper_read_weather(sqlite3* _db, Weather* _out, double _latitude, doubl
   if (sqlite3_step(stmt) != SQLITE_ROW) {
     sqlite3_finalize(stmt);
     _out->count = 0;
+    pthread_mutex_unlock(&_H->mutex);
+
     return SUCCESS;
   }
 
@@ -306,7 +345,8 @@ int sql_helper_read_weather(sqlite3* _db, Weather* _out, double _latitude, doubl
       "WHERE series_id=? AND timestamp>=? AND timestamp<? "
       "ORDER BY timestamp;";
 
-  if (sqlite3_prepare_v2(_db, values_sql, -1, &stmt, NULL) != SQLITE_OK) {
+  if (sqlite3_prepare_v2(_H->db, values_sql, -1, &stmt, NULL) != SQLITE_OK) {
+    pthread_mutex_unlock(&_H->mutex);
     return ERR_FATAL;
   }
 
@@ -325,6 +365,7 @@ int sql_helper_read_weather(sqlite3* _db, Weather* _out, double _latitude, doubl
   _out->values = malloc(sizeof(Weather_Values) * capacity);
   if (!_out->values) {
     sqlite3_finalize(stmt);
+    pthread_mutex_unlock(&_H->mutex);
     return ERR_NO_MEMORY;
   }
 
@@ -334,6 +375,7 @@ int sql_helper_read_weather(sqlite3* _db, Weather* _out, double _latitude, doubl
       Weather_Values* tmp = realloc(_out->values, sizeof(Weather_Values) * capacity);
       if (!tmp) {
         sqlite3_finalize(stmt);
+        pthread_mutex_unlock(&_H->mutex);
         return ERR_NO_MEMORY;
       }
       _out->values = tmp;
@@ -355,12 +397,13 @@ int sql_helper_read_weather(sqlite3* _db, Weather* _out, double _latitude, doubl
   }
 
   sqlite3_finalize(stmt);
+  pthread_mutex_unlock(&_H->mutex);
   return SUCCESS;
 }
 
-int sql_helper_insert_spots(sqlite3* _db, const Electricity_Spots* _spot)
+int sql_helper_insert_spots(SqlHelper* _H, const Electricity_Spots* _spot)
 {
-  if (!_db || !_spot || !_spot->prices) {
+  if (!_H || !_H->db || !_spot || !_spot->prices) {
     return ERR_INVALID_ARG;
   }
 
@@ -374,11 +417,13 @@ int sql_helper_insert_spots(sqlite3* _db, const Electricity_Spots* _spot)
 
   sqlite3_stmt* stmt = NULL;
 
-  if (sqlite3_prepare_v2(_db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+  pthread_mutex_lock(&_H->mutex);
+  if (sqlite3_prepare_v2(_H->db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+    pthread_mutex_unlock(&_H->mutex);
     return ERR_FATAL;
   }
 
-  sqlite3_exec(_db, "BEGIN;", NULL, NULL, NULL);
+  sqlite3_exec(_H->db, "BEGIN;", NULL, NULL, NULL);
 
   for (int i = 0; i < (int)_spot->price_count; i++) {
     sqlite3_bind_int64(stmt, 1, (sqlite3_int64)_spot->prices[i].time_start);
@@ -389,6 +434,7 @@ int sql_helper_insert_spots(sqlite3* _db, const Electricity_Spots* _spot)
 
     if (sqlite3_step(stmt) != SQLITE_DONE) {
       sqlite3_finalize(stmt);
+      pthread_mutex_unlock(&_H->mutex);
       return ERR_FATAL;
     }
 
@@ -396,15 +442,16 @@ int sql_helper_insert_spots(sqlite3* _db, const Electricity_Spots* _spot)
     sqlite3_clear_bindings(stmt);
   }
 
-  sqlite3_exec(_db, "COMMIT;", NULL, NULL, NULL);
+  sqlite3_exec(_H->db, "COMMIT;", NULL, NULL, NULL);
   sqlite3_finalize(stmt);
 
+  pthread_mutex_unlock(&_H->mutex);
   return SUCCESS;
 }
-int sql_helper_read_spots(sqlite3* _db, Electricity_Spots* _out, SpotPriceClass _price_class,
+int sql_helper_read_spots(SqlHelper* _H, Electricity_Spots* _out, SpotPriceClass _price_class,
                           SpotCurrency _currency, time_t _start, time_t _end)
 {
-  if (!_db || !_out) {
+  if (!_H || !_H->db || !_out) {
     return ERR_INVALID_ARG;
   }
 
@@ -416,7 +463,9 @@ int sql_helper_read_spots(sqlite3* _db, Electricity_Spots* _out, SpotPriceClass 
 
   sqlite3_stmt* stmt = NULL;
 
-  if (sqlite3_prepare_v2(_db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+  pthread_mutex_lock(&_H->mutex);
+  if (sqlite3_prepare_v2(_H->db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+    pthread_mutex_unlock(&_H->mutex);
     return ERR_FATAL;
   }
 
@@ -435,6 +484,7 @@ int sql_helper_read_spots(sqlite3* _db, Electricity_Spots* _out, SpotPriceClass 
   _out->prices = malloc(sizeof(Electricity_Spot_Price) * capacity);
   if (!_out->prices) {
     sqlite3_finalize(stmt);
+    pthread_mutex_unlock(&_H->mutex);
     return ERR_NO_MEMORY;
   }
 
@@ -447,6 +497,7 @@ int sql_helper_read_spots(sqlite3* _db, Electricity_Spots* _out, SpotPriceClass 
 
       if (!tmp) {
         sqlite3_finalize(stmt);
+        pthread_mutex_unlock(&_H->mutex);
         return ERR_NO_MEMORY;
       }
       _out->prices = tmp;
@@ -465,13 +516,24 @@ int sql_helper_read_spots(sqlite3* _db, Electricity_Spots* _out, SpotPriceClass 
   _out->currency = _currency;
 
   sqlite3_finalize(stmt);
-
+  pthread_mutex_unlock(&_H->mutex);
   return SUCCESS;
 }
 
-void sql_helper_close(sqlite3* _db)
+void sql_helper_close(SqlHelper* _H)
 {
-  if (_db) {
-    sqlite3_close(_db);
+  if (_H->db) {
+    pthread_mutex_lock(&_H->mutex);
+    sqlite3_close(_H->db);
+    pthread_mutex_unlock(&_H->mutex);
   }
+}
+
+void sql_helper_dispose(SqlHelper* _H)
+{
+  if (!_H) {
+    return;
+  }
+  free(_H);
+  _H = NULL;
 }

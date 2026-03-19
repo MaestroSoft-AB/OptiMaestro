@@ -21,36 +21,20 @@ int ech_validate_cache(const char* _cache_path);
 int ech_parse_json(Electricity_Spots* _Spot, const char* _json_str);
 
 /* --------------------------SQL---------------------------------- */
-int ech_get_spots_range(Electricity_Spots* _Spot, const char* _spots_dir,
+int ech_get_spots_range(SqlHelper* _H, Electricity_Spots* _Spot, const char* _spots_dir,
                         SpotPriceClass _price_class, SpotCurrency _currency, time_t _start,
                         time_t _end)
 {
 
-  if (!_Spot || !_spots_dir) {
+  if (!_H || !_Spot || !_spots_dir) {
     return ERR_INVALID_ARG;
   }
 
-  int res;
-  sqlite3* db = NULL;
-  char db_path[512];
-
-  snprintf(db_path, sizeof(db_path), "%s/cache.db", _spots_dir);
-
-  res = sql_helper_open(&db, db_path);
-
-  if (res != SUCCESS) {
-    LOG_ERROR("sql_helper_open (%i)", res);
-    return res;
-  }
-
-  res = sql_helper_read_spots(db, _Spot, _price_class, _currency, _start, _end);
+  int res = sql_helper_read_spots(_H, _Spot, _price_class, _currency, _start, _end);
   if (res != SUCCESS) {
     LOG_ERROR("sql_helper_read_spots (%i)", res);
-    sql_helper_close(db);
     return res;
   }
-
-  sql_helper_close(db);
 
   if (_Spot->price_count == 0)
     return ERR_NOT_FOUND;
@@ -80,6 +64,7 @@ int ech_init(ECH* _ECH, const ECH_Conf* _Conf)
 
   _ECH->conf.price_class = _Conf->price_class;
   _ECH->conf.currency = _Conf->currency;
+  _ECH->conf.sqlhelper = _Conf->sqlhelper;
 
   return SUCCESS;
 }
@@ -93,17 +78,6 @@ int ech_update_cache(ECH* _ECH)
   LOG_INFO("Updating electricity cache (SE%d)...\r\n", _ECH->conf.price_class + 1);
 
   int res;
-  sqlite3* db = NULL;
-
-  char path_buf[512];
-  const char* db_path = NULL;
-  if (!_ECH->conf.data_dir) {
-    db_path = ECH_BASE_CACHE_PATH_FALLBACK "/cache.db";
-  } else {
-    snprintf(path_buf, sizeof(path_buf), "%s/cache.db", _ECH->conf.data_dir);
-    db_path = path_buf;
-  }
-
   _ECH->spot.price_class = _ECH->conf.price_class;
   _ECH->spot.currency = _ECH->conf.currency;
 
@@ -122,30 +96,22 @@ int ech_update_cache(ECH* _ECH)
   time_t range_start = target_day;
   time_t range_end = target_day + 86400;
 
-  res = sql_helper_open(&db, db_path);
-  if (res != SUCCESS) {
-    LOG_ERROR("sql_helper_open (%i)", res);
-    return res;
-  }
-
   // Speeds up cache
-  sqlite3_exec(db, "PRAGMA journal_mode=WAL;", NULL, NULL, NULL);
-  sqlite3_exec(db, "PRAGMA synchronous=NORMAL;", NULL, NULL, NULL);
+  // sqlite3_exec(_ECH->sqlhelper->db, "PRAGMA journal_mode=WAL;", NULL, NULL, NULL);
+  // sqlite3_exec(_ECH->sqlhelper->db, "PRAGMA synchronous=NORMAL;", NULL, NULL, NULL);
 
   // Try to read from cache
 
-  res = sql_helper_read_spots(db, &_ECH->spot, _ECH->conf.price_class, _ECH->conf.currency,
-                              range_start, range_end);
+  res = sql_helper_read_spots(_ECH->sqlhelper, &_ECH->spot, _ECH->conf.price_class,
+                              _ECH->conf.currency, range_start, range_end);
 
   if (res != SUCCESS) {
     LOG_ERROR("sql_helper_read_spots (%i)", res);
-    sql_helper_close(db);
     return res;
   }
 
   if (_ECH->spot.price_count > 0) {
     LOG_INFO("Electricity cache up to date, loaded %d rows from db.", _ECH->spot.price_count);
-    sql_helper_close(db);
     return SUCCESS;
   }
 
@@ -154,7 +120,6 @@ int ech_update_cache(ECH* _ECH)
   res = epjn_init(&_ECH->epjn_spot);
   if (res != SUCCESS) {
     LOG_ERROR("epjn_init (%i)", res);
-    sql_helper_close(db);
     return res;
   }
 
@@ -162,7 +127,6 @@ int ech_update_cache(ECH* _ECH)
   if (res != SUCCESS) {
     LOG_ERROR("epjn_update (%i)", res);
     epjn_dispose(&_ECH->epjn_spot);
-    sql_helper_close(db);
     return res;
   }
 
@@ -170,31 +134,27 @@ int ech_update_cache(ECH* _ECH)
   if (res != SUCCESS) {
     LOG_ERROR("epjn_parse (%i)", res);
     epjn_dispose(&_ECH->epjn_spot);
-    sql_helper_close(db);
     return res;
   }
 
   epjn_dispose(&_ECH->epjn_spot);
 
-  res = sql_helper_insert_spots(db, &_ECH->spot);
+  res = sql_helper_insert_spots(_ECH->sqlhelper, &_ECH->spot);
   if (res != SUCCESS) {
     LOG_ERROR("sql_helper_insert_spots (%i)", res);
-    sql_helper_close(db);
     return res;
   }
 
-  res = sql_helper_read_spots(db, &_ECH->spot, _ECH->conf.price_class, _ECH->conf.currency,
-                              range_start, range_end);
+  res = sql_helper_read_spots(_ECH->sqlhelper, &_ECH->spot, _ECH->conf.price_class,
+                              _ECH->conf.currency, range_start, range_end);
 
   if (res != SUCCESS) {
     LOG_ERROR("sql_helper_read_spots after insert (%i)", res);
-    sql_helper_close(db);
     return res;
   }
 
   LOG_INFO("Electricity cache updated, loaded %d rows from db.\r\n", _ECH->spot.price_count);
 
-  sql_helper_close(db);
   return SUCCESS;
 
   //   LOG_INFO("Updating electricity cache (SE%d)...\r\n", _ECH->conf.price_class + 1);

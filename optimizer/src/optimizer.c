@@ -78,6 +78,10 @@ int optimizer_init(Optimizer* _O)
     return res;
   }
 
+  if (sql_helper_init(&_O->sqlhelper) != SUCCESS) {
+    return ERR_FATAL;
+  }
+
   return SUCCESS;
 }
 
@@ -210,31 +214,28 @@ int optimizer_run(Optimizer* _O)
   int i;
   int res;
 
-  sqlite3* db = NULL;
   char db_path[512];
 
   snprintf(db_path, sizeof(db_path), "%s/cache.db", _O->config.data_dir);
 
-  res = sql_helper_open(&db, db_path);
+  res = sql_helper_open(&_O->sqlhelper, db_path);
   if (res != SUCCESS) {
     LOG_ERROR("sql_helper_open (%i)", res);
     return res;
   }
 
-  res = sql_helper_init_schema(db);
+  res = sql_helper_init_schema(&_O->sqlhelper);
   if (res != SUCCESS) {
     LOG_ERROR("sql_helper_init_schema (%i)", res);
-    sql_helper_close(db);
     return res;
   }
-
-  sql_helper_close(db);
 
   /* Define cache runs with config structs */
   ECH_Conf ECH_Config[4] = {0}; // One per each price_class
   for (i = 0; i < 4; i++) {
     ECH_Config[i].price_class = i;
     ECH_Config[i].currency = _O->config.currency;
+    ECH_Config[i].sqlhelper = &_O->sqlhelper;
     if (_O->config.data_spots_dir != NULL)
       ECH_Config[i].data_dir = _O->config.data_dir;
   }
@@ -247,6 +248,7 @@ int optimizer_run(Optimizer* _O)
     WCH_Config[i].panel_azimuth = _O->config.panel_azimuth;
     WCH_Config[i].panel_tilt = _O->config.panel_tilt;
     WCH_Config[i].data_dir = _O->config.data_dir;
+    WCH_Config[i].sqlhelper = &_O->sqlhelper;
   }
 
   /* Initiate thread pools */
@@ -285,13 +287,15 @@ int optimizer_run(Optimizer* _O)
       .currency = _O->config.currency,
       .max_threads = _O->config.max_threads,
       .panel_size = (int)_O->config.panel_size,
+      .sqlhelper = &_O->sqlhelper,
   };
 
   if (calc_create_reports(&C_Args) != SUCCESS) {
     LOG_ERROR("calc_create_reports");
     return ERR_FATAL;
   }
-
+  sql_helper_close(&_O->sqlhelper);
+  sql_helper_dispose(&_O->sqlhelper);
   return SUCCESS;
 }
 
