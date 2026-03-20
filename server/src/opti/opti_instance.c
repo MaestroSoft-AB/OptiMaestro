@@ -1,9 +1,12 @@
 #include "opti/opti_instance.h"
 #include <maestroutils/file_utils.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #define OPTI_AVERAGE_PATH "/var/lib/maestro/calcs/"
+#define OPTI_CONFIG_PATH "/etc/maestro/optimizer.conf"
 
 //-----------------Internal Functions-----------------
 //
@@ -23,9 +26,11 @@ int osi_get_jacuzzi_data(Osi_RequestCtx* _ctx);
 int osi_get_overview(Osi_RequestCtx* _ctx);
 int osi_get_average(Osi_RequestCtx* _ctx);
 int osi_get_average_hourly(Osi_RequestCtx* _ctx);
+int osi_get_config(Osi_RequestCtx* _ctx);
+int osi_post_config(Osi_RequestCtx* _ctx);
 
 /* REMEMBER TO CHANGE COUNT WHEN ADDING ENDPOINT! */
-#define ENDPOINTS_COUNT 6
+#define ENDPOINTS_COUNT 8
 
 const Device_API_Endpoint Endpoints[ENDPOINTS_COUNT] = {{
                                                             "/solar-cell",
@@ -56,6 +61,16 @@ const Device_API_Endpoint Endpoints[ENDPOINTS_COUNT] = {{
                                                             "/average-hourly",
                                                             HTTP_GET,
                                                             osi_get_average_hourly,
+                                                        },
+                                                        {
+                                                            "/config",
+                                                            HTTP_GET,
+                                                            osi_get_config,
+                                                        },
+                                                        {
+                                                            "/config",
+                                                            HTTP_POST,
+                                                            osi_post_config,
                                                         }}
 
 ;
@@ -111,6 +126,22 @@ static int osi_set_response(HTTP_Server_Connection* _Conn, int _status_code,
   _Conn->weather_done = 1; // Change this to a more appropriate name
 
   return SUCCESS;
+}
+
+static const char* osi_get_request_body(Osi_RequestCtx* _ctx, int* _body_len)
+{
+  if (!_ctx || !_ctx->conn || !_body_len) {
+    return NULL;
+  }
+
+  *_body_len = 0;
+
+  if (_ctx->conn->content_length <= 0 || _ctx->conn->tcp_client.data.addr == NULL) {
+    return NULL;
+  }
+
+  *_body_len = _ctx->conn->content_length;
+  return (const char*)_ctx->conn->tcp_client.data.addr;
 }
 /*******************************ENDPOINT FUNCTIONS************************/
 int osi_get_solar_data(Osi_RequestCtx* _ctx)
@@ -231,6 +262,61 @@ int osi_get_average_hourly(Osi_RequestCtx* _ctx)
   free((void*)file_content);
 
   return res;
+}
+
+int osi_get_config(Osi_RequestCtx* _ctx)
+{
+  if (!_ctx || !_ctx->conn || !_ctx->conn->request) {
+    return ERR_INVALID_ARG;
+  }
+
+  const char* file_content = read_file_to_string(OPTI_CONFIG_PATH);
+  if (!file_content) {
+    return osi_set_response(_ctx->conn, 503, "application/json",
+                            "{\"error\":\"optimizer.conf not available\"}");
+  }
+
+  int res = osi_set_response(_ctx->conn, 200, "text/plain", file_content);
+
+  free((void*)file_content);
+
+  return res;
+}
+
+int osi_post_config(Osi_RequestCtx* _ctx)
+{
+  if (!_ctx || !_ctx->conn || !_ctx->conn->request) {
+    return ERR_INVALID_ARG;
+  }
+
+  int body_len = 0;
+  const char* body = osi_get_request_body(_ctx, &body_len);
+  if (!body || body_len <= 0) {
+    return osi_set_response(_ctx->conn, 400, "application/json",
+                            "{\"error\":\"config body missing\"}");
+  }
+
+  FILE* config_file = fopen(OPTI_CONFIG_PATH, "w");
+  if (!config_file) {
+    return osi_set_response(_ctx->conn, 503, "application/json",
+                            "{\"error\":\"failed to open optimizer.conf\"}");
+  }
+
+  size_t written = fwrite(body, 1, (size_t)body_len, config_file);
+  int close_result = fclose(config_file);
+
+  if (written != (size_t)body_len || close_result != 0) {
+    return osi_set_response(_ctx->conn, 503, "application/json",
+                            "{\"error\":\"failed to write optimizer.conf\"}");
+  }
+
+  int signal_result = system("pkill -USR2 optimizer");
+  if (signal_result != 0) {
+    return osi_set_response(_ctx->conn, 503, "application/json",
+                            "{\"error\":\"optimizer.conf saved but reload signal failed\"}");
+  }
+
+  return osi_set_response(_ctx->conn, 200, "application/json", "{\"status\":\"config saved\"}");
 }
 
 /*************************************************************************/
