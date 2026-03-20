@@ -14,6 +14,12 @@ typedef struct
   int max_threads;
   int panel_size;
 
+  double latitude;
+  double longitude;
+  int panel_tilt;
+  unsigned int panel_azimuth;
+  bool forecast;
+
 } Calc_Args;
 
 /* ======================= INTERFACE ======================= */

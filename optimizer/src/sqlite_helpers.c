@@ -166,9 +166,10 @@ static int sql_helper_get_or_create_facility(SqlHelper* _H, const Weather* _W, b
 
   sqlite3_finalize(stmt);
 
-  const char* select_sql =
-      "SELECT id FROM facility "
-      "WHERE latitude=? AND longitude=? AND panel_tilt=? AND panel_azimuth=? AND forecast=?;";
+  const char* select_sql = "SELECT id FROM facility "
+                           "WHERE ABS(latitude - ?) < 0.0001 "
+                           "AND ABS(longitude - ?) < 0.0001 "
+                           "AND panel_tilt=? AND panel_azimuth=? AND forecast=?;";
 
   if (sqlite3_prepare_v2(_H->db, select_sql, -1, &stmt, NULL) != SQLITE_OK) {
     pthread_mutex_unlock(&_H->mutex);
@@ -285,11 +286,12 @@ int sql_helper_read_weather(SqlHelper* _H, Weather* _out, double _latitude, doub
   sqlite3_stmt* stmt = NULL;
   sqlite3_int64 facility_id = 0;
 
-  const char* meta_sql =
-      "SELECT id, interval_minutes, temperature_unit, windspeed_unit, "
-      "precipitation_unit, winddirection_unit, radiation_unit "
-      "FROM facility "
-      "WHERE latitude=? AND longitude=? AND panel_tilt=? AND panel_azimuth=? AND forecast=?;";
+  const char* meta_sql = "SELECT id, interval_minutes, temperature_unit, windspeed_unit, "
+                         "precipitation_unit, winddirection_unit, radiation_unit "
+                         "FROM facility "
+                         "WHERE ABS(latitude - ?) < 0.0001 "
+                         "AND ABS(longitude - ?) < 0.0001 "
+                         "AND panel_tilt=? AND panel_azimuth=? AND forecast=?;";
 
   pthread_mutex_lock(&_H->mutex);
   if (sqlite3_prepare_v2(_H->db, meta_sql, -1, &stmt, NULL) != SQLITE_OK) {
@@ -303,7 +305,18 @@ int sql_helper_read_weather(SqlHelper* _H, Weather* _out, double _latitude, doub
   sqlite3_bind_int(stmt, 4, _panel_azimuth);
   sqlite3_bind_int(stmt, 5, _forecast ? 1 : 0);
 
+  printf("read_weather meta lookup: lat=%f lon=%f tilt=%d az=%u forecast=%d\n", _latitude,
+         _longitude, _panel_tilt, _panel_azimuth, _forecast ? 1 : 0);
+
   if (sqlite3_step(stmt) != SQLITE_ROW) {
+    if (sqlite3_step(stmt) != SQLITE_ROW) {
+      printf("read_weather: no matching facility row\n");
+      sqlite3_finalize(stmt);
+      _out->count = 0;
+      pthread_mutex_unlock(&_H->mutex);
+      return SUCCESS;
+    }
+    printf("read_weather: facility_id=%lld\n", (long long)facility_id);
     sqlite3_finalize(stmt);
     _out->count = 0;
     pthread_mutex_unlock(&_H->mutex);
@@ -362,6 +375,9 @@ int sql_helper_read_weather(SqlHelper* _H, Weather* _out, double _latitude, doub
   _out->count = 0;
   int capacity = 128;
 
+  printf("read_weather values lookup: facility_id=%lld start=%lld end=%lld\n",
+         (long long)facility_id, (long long)_start, (long long)_end);
+
   _out->values = malloc(sizeof(Weather_Values) * capacity);
   if (!_out->values) {
     sqlite3_finalize(stmt);
@@ -396,6 +412,7 @@ int sql_helper_read_weather(SqlHelper* _H, Weather* _out, double _latitude, doub
     v->sun_duration = sqlite3_column_double(stmt, 10);
   }
 
+  printf("read_weather: fetched %u rows\n", _out->count);
   sqlite3_finalize(stmt);
   pthread_mutex_unlock(&_H->mutex);
   return SUCCESS;
@@ -505,8 +522,6 @@ int sql_helper_read_spots(SqlHelper* _H, Electricity_Spots* _out, SpotPriceClass
 
     Electricity_Spot_Price* p = &_out->prices[_out->price_count++];
 
-    printf("Pricecount in sqlhelper: %d\n", _out->price_count);
-
     p->time_start = (time_t)sqlite3_column_int64(stmt, 0);
     p->time_end = (time_t)sqlite3_column_int64(stmt, 1);
     p->spot_price = sqlite3_column_double(stmt, 2);
@@ -534,6 +549,6 @@ void sql_helper_dispose(SqlHelper* _H)
   if (!_H) {
     return;
   }
-  free(_H);
+  sqlite3_close(_H->db);
   _H = NULL;
 }

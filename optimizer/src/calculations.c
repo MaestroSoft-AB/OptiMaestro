@@ -8,7 +8,6 @@
 #include <maestromodules/thread_pool.h>
 #include <maestroutils/error.h>
 #include <maestroutils/file_logging.h>
-#include <maestroutils/math_utils.h>
 #include <pthread.h>
 #define MAESTROUTILS_WITH_CJSON 1 // get rid of stupid lsp error
 #include "sqlite_helpers.h"
@@ -98,8 +97,8 @@ void calc_daily_averages_threadtask(void* _context)
     return;
   }
 
-  if (W != NULL && (S->price_count > W->count)) {
-    LOG_ERROR("Weather count must be higher than spot count");
+  if (W != NULL && W->count == 0) {
+    LOG_ERROR("No weather data");
     return;
   }
 
@@ -209,10 +208,10 @@ calc_results_create(Calc_Results* _Res, const Calc_Args* _Args, const Electricit
       return ERR_INVALID_ARG;
     }
 
-    int synced_weather_count = _W->count - weather_index_start + 1;
+    int synced_weather_count = _W->count - weather_index_start; // removed +1
     if (synced_weather_count < (int)_S->price_count) {
       _Res->count = synced_weather_count / _interval;
-      spot_index_start = (int)_S->price_count - synced_weather_count - 1;
+      spot_index_start = (int)_S->price_count - synced_weather_count; // removed -1
     }
     // printf("synced_weather_count: %i\n",  synced_weather_count);
     // printf("spot index start: %i\n", spot_index_start);
@@ -494,54 +493,46 @@ static inline int calc_summary_create(const Calc_Results* _Res, const Calc_Args*
 //  just based on date range, caller caring only about initing data struct
 int calc_fetch_input_data(Electricity_Spots* _S, Weather* _W, Calc_Args* _Args)
 {
-  if (!_S || !_W || !_Args)
+  if (!_S || !_W || !_Args || !_Args->sqlhelper) {
     return ERR_INVALID_ARG;
+  }
 
   int res;
   memset(_S, 0, sizeof(Electricity_Spots));
   memset(_W, 0, sizeof(Weather));
 
-  // TODO: Make this nicer please
-  time_t start = epoch_now_day() - 3600;
+  time_t start = (epoch_now_day() + 86400) - 3600;
   time_t end = start + 86400;
 
   res = ech_get_spots_range(_Args->sqlhelper, _S, _Args->data_dir, _Args->price_class,
                             _Args->currency, start, end);
+
   if (res != SUCCESS) {
-    LOG_ERROR("ech_get_spots_range (%i)", res);
+    LOG_WARN("No spot data for tomorrow, falling back to today");
+
+    start = epoch_now_day() - 3600;
+    end = start + 86400;
+
+    res = ech_get_spots_range(_Args->sqlhelper, _S, _Args->data_dir, _Args->price_class,
+                              _Args->currency, start, end);
+
+    if (res != SUCCESS) {
+      LOG_ERROR("ech_get_spots_range failed for both tomorrow and today (%i)", res);
+      return res;
+    }
+  }
+
+  start = _S->prices[0].time_start;
+  end = _S->prices[_S->price_count - 1].time_end;
+
+  res = wch_get_weather_range(_Args->sqlhelper, _W, _Args->latitude, _Args->longitude,
+                              _Args->panel_tilt, _Args->panel_azimuth, _Args->forecast, start, end);
+  if (res != SUCCESS) {
+    LOG_ERROR("wch_get_weather_range (%i)", res);
+    free(_S->prices);
+    _S->prices = NULL;
     return res;
   }
-
-  printf("Number of spots: %d\n", _S->price_count);
-
-  /* Spots cache */
-  // time_t today = epoch_now_day();
-  // const char* spots_cache_path =
-  //     ech_get_cache_filepath(_Args->spots_dir, today, _Args->price_class, _Args->currency);
-  //
-  // res = ech_read_cache(_S, spots_cache_path);
-  // if (res != 0) {
-  //   LOG_ERROR("ech_read_cache (%i)", res);
-  //   free((void*)spots_cache_path);
-  //   return res;
-  // }
-  // free((void*)spots_cache_path);
-  //
-  // /* Weather cache */
-  // // THIS IS STUPID, THERE'S A CHANCE ENOUGH TIME HAS PASSED AFTER wch_update_cache() THAT NO
-  // FILENAME WITH THIS NAME EXISTS! ALSO NOT THE SAME STARTING INDEX AS SPOTS
-  // // TODO: SWITCH TO MORE DYNAMIC CACHE FETCHING, i.e hdf5/db
-  time_t now = time(NULL);
-  const char* weather_cache_path = wch_get_cache_json_filepath(_Args->weather_dir, now, true);
-
-  if (wch_read_cache_json(_W, weather_cache_path) != SUCCESS) {
-    LOG_ERROR("wch_read_cache_json");
-    free((void*)weather_cache_path);
-    free(_S->prices);
-    return ERR_INTERNAL;
-  }
-  free((void*)weather_cache_path);
-
   return SUCCESS;
 }
 

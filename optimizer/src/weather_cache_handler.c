@@ -60,10 +60,24 @@ int wch_update_cache(WCH* _WCH)
   _WCH->weather.panel_tilt = _WCH->conf.panel_tilt;
   _WCH->weather.panel_azimuth = _WCH->conf.panel_azimuth;
 
+  time_t today = epoch_now_day();
+  time_t tmrw = today + 86400;
+
+  time_t target_day = today;
+  int update_hour = 13;
+
+  if (time_is_at_or_after_hour(update_hour)) {
+    target_day = tmrw;
+  } else {
+    target_day = today;
+  }
+  time_t range_start = target_day - 3600;
+  time_t range_end = range_start + 86400;
+
   if (_WCH->conf.forecast) {
     if (meteo_get_15_minutely(&_WCH->weather, (float)_WCH->conf.latitude,
                               (float)_WCH->conf.longitude, (float)_WCH->conf.panel_azimuth,
-                              (float)_WCH->conf.panel_tilt) != 0) {
+                              (float)_WCH->conf.panel_tilt, range_start, range_end) != 0) {
       LOG_ERROR("meteo_get_15_minutely");
       return ERR_INTERNAL;
     }
@@ -75,8 +89,12 @@ int wch_update_cache(WCH* _WCH)
     }
   }
 
+  _WCH->weather.latitude = _WCH->conf.latitude;
+  _WCH->weather.longitude = _WCH->conf.longitude;
+  _WCH->weather.panel_tilt = _WCH->conf.panel_tilt;
+  _WCH->weather.panel_azimuth = _WCH->conf.panel_azimuth;
+
   int res = sql_helper_insert_weather(_WCH->conf.sqlhelper, &_WCH->weather, _WCH->conf.forecast);
-  printf("insert weather result: %d, count: %d\n", res, _WCH->weather.count);
   if (res != SUCCESS) {
     LOG_ERROR("sql_helper_insert_weather (%i)", res);
     return res;
@@ -351,6 +369,18 @@ int wch_read_cache_json(Weather* _W, const char* _cache_path)
   free(json_str);
 
   return SUCCESS;
+}
+
+int wch_get_weather_range(SqlHelper* _H, Weather* _W, double _latitude, double _longitude,
+                          int _panel_tilt, unsigned int _panel_azimuth, bool _forecast,
+                          time_t _start, time_t _end)
+{
+  if (!_H || !_W) {
+    return ERR_INVALID_ARG;
+  }
+
+  return sql_helper_read_weather(_H, _W, _latitude, _longitude, _panel_tilt, _panel_azimuth,
+                                 _forecast, _start, _end);
 }
 
 void wch_weather_dispose(Weather* _W)

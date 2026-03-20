@@ -288,6 +288,11 @@ int optimizer_run(Optimizer* _O)
       .max_threads = _O->config.max_threads,
       .panel_size = (int)_O->config.panel_size,
       .sqlhelper = &_O->sqlhelper,
+      .latitude = _O->config.latitude,
+      .longitude = _O->config.longitude,
+      .panel_tilt = _O->config.panel_tilt,
+      .panel_azimuth = _O->config.panel_azimuth,
+      .forecast = true,
   };
 
   if (calc_create_reports(&C_Args) != SUCCESS) {

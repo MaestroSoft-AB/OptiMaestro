@@ -93,9 +93,8 @@ int ech_update_cache(ECH* _ECH)
     target_day = today;
   }
 
-  time_t range_start = target_day;
-  time_t range_end = target_day + 86400;
-
+  time_t range_start = target_day - 3600;
+  time_t range_end = range_start + 86400;
   // Speeds up cache
   // sqlite3_exec(_ECH->sqlhelper->db, "PRAGMA journal_mode=WAL;", NULL, NULL, NULL);
   // sqlite3_exec(_ECH->sqlhelper->db, "PRAGMA synchronous=NORMAL;", NULL, NULL, NULL);
