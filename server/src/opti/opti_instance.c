@@ -7,6 +7,7 @@
 
 #define OPTI_AVERAGE_PATH "/var/lib/maestro/calcs/"
 #define OPTI_CONFIG_PATH "/etc/maestro/optimizer.conf"
+#define OPTI_CONFIG_EDITABLE_COUNT 7
 
 //-----------------Internal Functions-----------------
 //
@@ -142,6 +143,236 @@ static const char* osi_get_request_body(Osi_RequestCtx* _ctx, int* _body_len)
 
   *_body_len = _ctx->conn->content_length;
   return (const char*)_ctx->conn->tcp_client.data.addr;
+}
+
+typedef struct
+{
+  const char* key;
+  char value[128];
+  int has_value;
+  int was_written;
+} Config_Update;
+
+static Config_Update osi_config_updates[OPTI_CONFIG_EDITABLE_COUNT] = {
+    {"data.spots.currency", "", 0, 0}, {"data.spots.price_class", "", 0, 0},
+    {"facility.latitude", "", 0, 0},   {"facility.longitude", "", 0, 0},
+    {"facility.panel.tilt", "", 0, 0}, {"facility.panel.azimuth", "", 0, 0},
+    {"facility.panel.m2_size", "", 0, 0},
+};
+
+static void osi_reset_config_updates(void)
+{
+  for (int i = 0; i < OPTI_CONFIG_EDITABLE_COUNT; ++i) {
+    osi_config_updates[i].value[0] = '\0';
+    osi_config_updates[i].has_value = 0;
+    osi_config_updates[i].was_written = 0;
+  }
+}
+
+static Config_Update* osi_find_config_update(const char* key, size_t key_len)
+{
+  for (int i = 0; i < OPTI_CONFIG_EDITABLE_COUNT; ++i) {
+    if (strlen(osi_config_updates[i].key) == key_len &&
+        strncmp(osi_config_updates[i].key, key, key_len) == 0) {
+      return &osi_config_updates[i];
+    }
+  }
+
+  return NULL;
+}
+
+static int osi_append_text(char** buffer, size_t* used, size_t* capacity, const char* text,
+                           size_t text_len)
+{
+  if (!buffer || !used || !capacity || !text) {
+    return ERR_INVALID_ARG;
+  }
+
+  if (*buffer == NULL || *capacity < *used + text_len + 1) {
+    size_t new_capacity = (*capacity == 0) ? 512 : *capacity;
+    while (new_capacity < *used + text_len + 1) {
+      new_capacity *= 2;
+    }
+
+    char* new_buffer = (char*)realloc(*buffer, new_capacity);
+    if (!new_buffer) {
+      return ERR_NO_MEMORY;
+    }
+
+    *buffer = new_buffer;
+    *capacity = new_capacity;
+  }
+
+  memcpy(*buffer + *used, text, text_len);
+  *used += text_len;
+  (*buffer)[*used] = '\0';
+
+  return SUCCESS;
+}
+
+static int osi_parse_config_updates(const char* body, int body_len)
+{
+  if (!body || body_len <= 0) {
+    return ERR_INVALID_ARG;
+  }
+
+  osi_reset_config_updates();
+
+  int offset = 0;
+  while (offset < body_len) {
+    int line_start = offset;
+    while (offset < body_len && body[offset] != '\n') {
+      ++offset;
+    }
+
+    int line_end = offset;
+    if (line_end > line_start && body[line_end - 1] == '\r') {
+      --line_end;
+    }
+
+    if (offset < body_len && body[offset] == '\n') {
+      ++offset;
+    }
+
+    if (line_end <= line_start) {
+      continue;
+    }
+
+    const char* line = body + line_start;
+    const char* separator = memchr(line, '=', (size_t)(line_end - line_start));
+    if (!separator) {
+      continue;
+    }
+
+    size_t key_len = (size_t)(separator - line);
+    size_t value_len = (size_t)((body + line_end) - separator - 1);
+
+    Config_Update* update = osi_find_config_update(line, key_len);
+    if (!update) {
+      return ERR_INVALID_ARG;
+    }
+
+    if (value_len >= sizeof(update->value)) {
+      return ERR_INVALID_ARG;
+    }
+
+    memcpy(update->value, separator + 1, value_len);
+    update->value[value_len] = '\0';
+    update->has_value = 1;
+  }
+
+  return SUCCESS;
+}
+
+static int osi_merge_config_updates(const char* existing_config, char** merged_config_out)
+{
+  if (!existing_config || !merged_config_out) {
+    return ERR_INVALID_ARG;
+  }
+
+  char* merged = NULL;
+  size_t merged_used = 0;
+  size_t merged_capacity = 0;
+  const char* cursor = existing_config;
+
+  while (*cursor != '\0') {
+    const char* line_start = cursor;
+    const char* line_end = strchr(cursor, '\n');
+    size_t line_len = 0;
+    int had_newline = 0;
+
+    if (line_end) {
+      line_len = (size_t)(line_end - line_start);
+      cursor = line_end + 1;
+      had_newline = 1;
+    } else {
+      line_len = strlen(line_start);
+      cursor = line_start + line_len;
+    }
+
+    size_t logical_len = line_len;
+    if (logical_len > 0 && line_start[logical_len - 1] == '\r') {
+      --logical_len;
+    }
+
+    const char* separator = memchr(line_start, '=', logical_len);
+    Config_Update* update = NULL;
+    if (separator) {
+      update = osi_find_config_update(line_start, (size_t)(separator - line_start));
+    }
+
+    int res;
+    if (update && update->has_value) {
+      res = osi_append_text(&merged, &merged_used, &merged_capacity, update->key,
+                            strlen(update->key));
+      if (res != SUCCESS) {
+        free(merged);
+        return res;
+      }
+      res = osi_append_text(&merged, &merged_used, &merged_capacity, "=", 1);
+      if (res != SUCCESS) {
+        free(merged);
+        return res;
+      }
+      res = osi_append_text(&merged, &merged_used, &merged_capacity, update->value,
+                            strlen(update->value));
+      if (res != SUCCESS) {
+        free(merged);
+        return res;
+      }
+      res = osi_append_text(&merged, &merged_used, &merged_capacity, "\n", 1);
+      if (res != SUCCESS) {
+        free(merged);
+        return res;
+      }
+      update->was_written = 1;
+    } else {
+      res = osi_append_text(&merged, &merged_used, &merged_capacity, line_start, line_len);
+      if (res != SUCCESS) {
+        free(merged);
+        return res;
+      }
+      if (had_newline) {
+        res = osi_append_text(&merged, &merged_used, &merged_capacity, "\n", 1);
+        if (res != SUCCESS) {
+          free(merged);
+          return res;
+        }
+      }
+    }
+  }
+
+  for (int i = 0; i < OPTI_CONFIG_EDITABLE_COUNT; ++i) {
+    if (!osi_config_updates[i].has_value || osi_config_updates[i].was_written) {
+      continue;
+    }
+
+    int res = osi_append_text(&merged, &merged_used, &merged_capacity, osi_config_updates[i].key,
+                              strlen(osi_config_updates[i].key));
+    if (res != SUCCESS) {
+      free(merged);
+      return res;
+    }
+    res = osi_append_text(&merged, &merged_used, &merged_capacity, "=", 1);
+    if (res != SUCCESS) {
+      free(merged);
+      return res;
+    }
+    res = osi_append_text(&merged, &merged_used, &merged_capacity, osi_config_updates[i].value,
+                          strlen(osi_config_updates[i].value));
+    if (res != SUCCESS) {
+      free(merged);
+      return res;
+    }
+    res = osi_append_text(&merged, &merged_used, &merged_capacity, "\n", 1);
+    if (res != SUCCESS) {
+      free(merged);
+      return res;
+    }
+  }
+
+  *merged_config_out = merged;
+  return SUCCESS;
 }
 /*******************************ENDPOINT FUNCTIONS************************/
 int osi_get_solar_data(Osi_RequestCtx* _ctx)
@@ -296,16 +527,44 @@ int osi_post_config(Osi_RequestCtx* _ctx)
                             "{\"error\":\"config body missing\"}");
   }
 
+  int parse_result = osi_parse_config_updates(body, body_len);
+  if (parse_result == ERR_INVALID_ARG) {
+    return osi_set_response(_ctx->conn, 400, "application/json",
+                            "{\"error\":\"invalid config key in update\"}");
+  }
+  if (parse_result != SUCCESS) {
+    return osi_set_response(_ctx->conn, 503, "application/json",
+                            "{\"error\":\"failed to parse config update\"}");
+  }
+
+  const char* existing_config = read_file_to_string(OPTI_CONFIG_PATH);
+  if (!existing_config) {
+    return osi_set_response(_ctx->conn, 503, "application/json",
+                            "{\"error\":\"optimizer.conf not available\"}");
+  }
+
+  char* merged_config = NULL;
+  int merge_result = osi_merge_config_updates(existing_config, &merged_config);
+  free((void*)existing_config);
+  if (merge_result != SUCCESS || !merged_config) {
+    free(merged_config);
+    return osi_set_response(_ctx->conn, 503, "application/json",
+                            "{\"error\":\"failed to merge config update\"}");
+  }
+
   FILE* config_file = fopen(OPTI_CONFIG_PATH, "w");
   if (!config_file) {
+    free(merged_config);
     return osi_set_response(_ctx->conn, 503, "application/json",
                             "{\"error\":\"failed to open optimizer.conf\"}");
   }
 
-  size_t written = fwrite(body, 1, (size_t)body_len, config_file);
+  size_t merged_len = strlen(merged_config);
+  size_t written = fwrite(merged_config, 1, merged_len, config_file);
   int close_result = fclose(config_file);
+  free(merged_config);
 
-  if (written != (size_t)body_len || close_result != 0) {
+  if (written != merged_len || close_result != 0) {
     return osi_set_response(_ctx->conn, 503, "application/json",
                             "{\"error\":\"failed to write optimizer.conf\"}");
   }
