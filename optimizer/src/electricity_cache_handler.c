@@ -102,7 +102,7 @@ int ech_update_cache(ECH* _ECH)
 
   // Try to read from cache
 
-  res = sql_helper_read_spots(_ECH->sqlhelper, &_ECH->spot, _ECH->conf.price_class,
+  res = sql_helper_read_spots(_ECH->conf.sqlhelper, &_ECH->spot, _ECH->conf.price_class,
                               _ECH->conf.currency, range_start, range_end);
 
   if (res != SUCCESS) {
@@ -139,13 +139,13 @@ int ech_update_cache(ECH* _ECH)
 
   epjn_dispose(&_ECH->epjn_spot);
 
-  res = sql_helper_insert_spots(_ECH->sqlhelper, &_ECH->spot);
+  res = sql_helper_insert_spots(_ECH->conf.sqlhelper, &_ECH->spot);
   if (res != SUCCESS) {
     LOG_ERROR("sql_helper_insert_spots (%i)", res);
     return res;
   }
 
-  res = sql_helper_read_spots(_ECH->sqlhelper, &_ECH->spot, _ECH->conf.price_class,
+  res = sql_helper_read_spots(_ECH->conf.sqlhelper, &_ECH->spot, _ECH->conf.price_class,
                               _ECH->conf.currency, range_start, range_end);
 
   if (res != SUCCESS) {

@@ -75,7 +75,7 @@ int wch_update_cache(WCH* _WCH)
     }
   }
 
-  int res = sql_helper_insert_weather(_WCH->sqlhelper, &_WCH->weather, _WCH->conf.forecast);
+  int res = sql_helper_insert_weather(_WCH->conf.sqlhelper, &_WCH->weather, _WCH->conf.forecast);
   printf("insert weather result: %d, count: %d\n", res, _WCH->weather.count);
   if (res != SUCCESS) {
     LOG_ERROR("sql_helper_insert_weather (%i)", res);

@@ -55,11 +55,11 @@ int sql_helper_init_schema(SqlHelper* _H)
       " PRIMARY KEY (time_start, price_class, currency)"
       ");"
 
-      "CREATE INDEX IF NOT EXISTS idx_spots_series_time "
+      "CREATE INDEX IF NOT EXISTS idx_spots_facility_time "
       "ON electricity_spots(price_class, currency, time_start);"
 
       /* Weather meta/config */
-      "CREATE TABLE IF NOT EXISTS weather_series ("
+      "CREATE TABLE IF NOT EXISTS facility ("
       " id INTEGER PRIMARY KEY AUTOINCREMENT,"
       " latitude REAL NOT NULL,"
       " longitude REAL NOT NULL,"
@@ -77,7 +77,7 @@ int sql_helper_init_schema(SqlHelper* _H)
 
       /* Weather values */
       "CREATE TABLE IF NOT EXISTS weather_values ("
-      " series_id INTEGER NOT NULL,"
+      " facility_id INTEGER NOT NULL,"
       " timestamp INTEGER NOT NULL,"
       " temperature REAL,"
       " windspeed REAL,"
@@ -89,12 +89,12 @@ int sql_helper_init_schema(SqlHelper* _H)
       " radiation_shortwave REAL,"
       " radiation_tilted REAL,"
       " sun_duration REAL,"
-      " PRIMARY KEY(series_id, timestamp),"
-      " FOREIGN KEY(series_id) REFERENCES weather_series(id) ON DELETE CASCADE"
+      " PRIMARY KEY(facility_id, timestamp),"
+      " FOREIGN KEY(facility_id) REFERENCES facility(id) ON DELETE CASCADE"
       ");"
 
-      "CREATE INDEX IF NOT EXISTS idx_weather_values_series_time "
-      "ON weather_values(series_id, timestamp);";
+      "CREATE INDEX IF NOT EXISTS idx_weather_values_facility_time "
+      "ON weather_values(facility_id, timestamp);";
 
   pthread_mutex_lock(&_H->mutex);
   sqlite3_exec(_H->db, "PRAGMA foreign_keys = ON;", NULL, NULL, NULL);
@@ -112,15 +112,15 @@ int sql_helper_init_schema(SqlHelper* _H)
   return SUCCESS;
 }
 
-static int sql_helper_get_or_create_weather_series(SqlHelper* _H, const Weather* _W, bool _forecast,
-                                                   sqlite3_int64* _series_id)
+static int sql_helper_get_or_create_facility(SqlHelper* _H, const Weather* _W, bool _forecast,
+                                             sqlite3_int64* _facility_id)
 {
-  if (!_H || !_H->db || !_W || !_series_id) {
+  if (!_H || !_H->db || !_W || !_facility_id) {
     return ERR_INVALID_ARG;
   }
 
   const char* insert_sql =
-      "INSERT INTO weather_series ("
+      "INSERT INTO facility ("
       " latitude, longitude, panel_tilt, panel_azimuth, forecast, interval_minutes,"
       " temperature_unit, windspeed_unit, precipitation_unit, winddirection_unit, radiation_unit"
       " ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
@@ -137,7 +137,7 @@ static int sql_helper_get_or_create_weather_series(SqlHelper* _H, const Weather*
 
   pthread_mutex_lock(&_H->mutex);
   if (sqlite3_prepare_v2(_H->db, insert_sql, -1, &stmt, NULL) != SQLITE_OK) {
-    SQL_CHECK_DB(_H->db, "prepare weather_series insert failed");
+    SQL_CHECK_DB(_H->db, "prepare facility insert failed");
     pthread_mutex_unlock(&_H->mutex);
     return ERR_FATAL;
   }
@@ -158,7 +158,7 @@ static int sql_helper_get_or_create_weather_series(SqlHelper* _H, const Weather*
   sqlite3_bind_text(stmt, 11, _W->radiation_unit ? _W->radiation_unit : "", -1, SQLITE_STATIC);
 
   if (sqlite3_step(stmt) != SQLITE_DONE) {
-    SQL_CHECK_DB(_H->db, "step weather_series insert failed");
+    SQL_CHECK_DB(_H->db, "step facility insert failed");
     sqlite3_finalize(stmt);
     pthread_mutex_unlock(&_H->mutex);
     return ERR_FATAL;
@@ -167,7 +167,7 @@ static int sql_helper_get_or_create_weather_series(SqlHelper* _H, const Weather*
   sqlite3_finalize(stmt);
 
   const char* select_sql =
-      "SELECT id FROM weather_series "
+      "SELECT id FROM facility "
       "WHERE latitude=? AND longitude=? AND panel_tilt=? AND panel_azimuth=? AND forecast=?;";
 
   if (sqlite3_prepare_v2(_H->db, select_sql, -1, &stmt, NULL) != SQLITE_OK) {
@@ -187,7 +187,7 @@ static int sql_helper_get_or_create_weather_series(SqlHelper* _H, const Weather*
     return ERR_NOT_FOUND;
   }
 
-  *_series_id = sqlite3_column_int64(stmt, 0);
+  *_facility_id = sqlite3_column_int64(stmt, 0);
   sqlite3_finalize(stmt);
 
   pthread_mutex_unlock(&_H->mutex);
@@ -202,19 +202,19 @@ int sql_helper_insert_weather(SqlHelper* _H, const Weather* _W, bool _forecast)
   }
 
   int res;
-  sqlite3_int64 series_id = 0;
+  sqlite3_int64 facility_id = 0;
 
-  res = sql_helper_get_or_create_weather_series(_H, _W, _forecast, &series_id);
+  res = sql_helper_get_or_create_facility(_H, _W, _forecast, &facility_id);
   if (res != SUCCESS) {
     return res;
   }
 
   const char* sql = "INSERT INTO weather_values ("
-                    " series_id, timestamp, temperature, windspeed, winddirection, precipitation,"
+                    " facility_id, timestamp, temperature, windspeed, winddirection, precipitation,"
                     " radiation_direct, radiation_direct_n, radiation_diffuse, radiation_shortwave,"
                     " radiation_tilted, sun_duration"
                     " ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                    "ON CONFLICT(series_id, timestamp) "
+                    "ON CONFLICT(facility_id, timestamp) "
                     "DO UPDATE SET "
                     " temperature = excluded.temperature,"
                     " windspeed = excluded.windspeed,"
@@ -241,7 +241,7 @@ int sql_helper_insert_weather(SqlHelper* _H, const Weather* _W, bool _forecast)
   for (unsigned int i = 0; i < _W->count; i++) {
     const Weather_Values* v = &_W->values[i];
 
-    sqlite3_bind_int64(stmt, 1, series_id);
+    sqlite3_bind_int64(stmt, 1, facility_id);
     sqlite3_bind_int64(stmt, 2, (sqlite3_int64)v->timestamp);
     sqlite3_bind_double(stmt, 3, v->temperature);
     sqlite3_bind_double(stmt, 4, v->windspeed);
@@ -283,12 +283,12 @@ int sql_helper_read_weather(SqlHelper* _H, Weather* _out, double _latitude, doub
   }
 
   sqlite3_stmt* stmt = NULL;
-  sqlite3_int64 series_id = 0;
+  sqlite3_int64 facility_id = 0;
 
   const char* meta_sql =
       "SELECT id, interval_minutes, temperature_unit, windspeed_unit, "
       "precipitation_unit, winddirection_unit, radiation_unit "
-      "FROM weather_series "
+      "FROM facility "
       "WHERE latitude=? AND longitude=? AND panel_tilt=? AND panel_azimuth=? AND forecast=?;";
 
   pthread_mutex_lock(&_H->mutex);
@@ -311,7 +311,7 @@ int sql_helper_read_weather(SqlHelper* _H, Weather* _out, double _latitude, doub
     return SUCCESS;
   }
 
-  series_id = sqlite3_column_int64(stmt, 0);
+  facility_id = sqlite3_column_int64(stmt, 0);
   _out->update_interval = sqlite3_column_int(stmt, 1);
   _out->latitude = _latitude;
   _out->longitude = _longitude;
@@ -342,7 +342,7 @@ int sql_helper_read_weather(SqlHelper* _H, Weather* _out, double _latitude, doub
       "radiation_direct, radiation_direct_n, radiation_diffuse, radiation_shortwave, "
       "radiation_tilted, sun_duration "
       "FROM weather_values "
-      "WHERE series_id=? AND timestamp>=? AND timestamp<? "
+      "WHERE facility_id=? AND timestamp>=? AND timestamp<? "
       "ORDER BY timestamp;";
 
   if (sqlite3_prepare_v2(_H->db, values_sql, -1, &stmt, NULL) != SQLITE_OK) {
@@ -350,7 +350,7 @@ int sql_helper_read_weather(SqlHelper* _H, Weather* _out, double _latitude, doub
     return ERR_FATAL;
   }
 
-  sqlite3_bind_int64(stmt, 1, series_id);
+  sqlite3_bind_int64(stmt, 1, facility_id);
   sqlite3_bind_int64(stmt, 2, (sqlite3_int64)_start);
   sqlite3_bind_int64(stmt, 3, (sqlite3_int64)_end);
 
