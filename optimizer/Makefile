@@ -16,9 +16,9 @@ UID := $(shell id -u)
 GID := $(shell id -g)
 BIN_DIR	 := /home/$(USER)/.local/bin
 RUN_DIRS := /var/lib/maestro/ /etc/maestro/ 
-RUN_FILES := /var/log/maestro.log
+RUN_FILES := /var/log/maestro.log /run/optimizer.pid
 CONF_FILE := /etc/maestro/optimizer.conf
-INSTALL_SCRIPT := ./scripts/install.sh
+INSTALL_SCRIPT := ../config/install.sh
 
 # ----- Local source files -----
 SRC_DIR 			 := src
@@ -31,7 +31,7 @@ COMMON_SRC := $(shell find -L $(COMMON_SRC_DIR) -type f -name '*.c')
 MAESTRO_DIR ?= ../external/MaestroCore
 MAESTRO_LIB := $(MAESTRO_DIR)/build/lib/libmaestrocore.a
 CJSON_DIR 	:= ../external/cJSON # Needed this for local include
-CORE_FLAGS := -I$(MAESTRO_DIR)/modules/include \
+CORE_FLAGS  := -I$(MAESTRO_DIR)/modules/include \
               -I$(MAESTRO_DIR)/utils/include \
               -L$(MAESTRO_DIR)/build/lib \
               -lmaestrocore -lpthread -lm
@@ -93,14 +93,19 @@ $(BIN): $(OBJ) $(MAESTRO_LIB)
 	@echo "Creating bin dir: $(BIN_DIR)..."
 	@mkdir -p $(BIN_DIR)
 	@echo "Linking..."
-	@$(CC) $(LDFLAGS) $(OBJ) $(MAESTRO_LIB) $(MBEDTLS_LIBS) -o $@ $(LIBS) -lpthread -lm
+	@$(CC) $(LDFLAGS) $(OBJ) $(MAESTRO_LIB) $(MBEDTLS_LIBS) -o $@ $(LIBS) -lm
 
 # asan: clean
 # 	@echo "Building ASan binary..."
 # 	@$(MAKE) CC=$(CC) CFLAGS="$(CFLAGS) $(ASAN_FLAGS)" LDFLAGS="$(LDFLAGS) $(ASAN_FLAGS)" all
 
 $(BUILD_DIR)/$(SRC_DIR)/%.o: $(SRC_DIR)/%.c
-	@echo "Compiling $<..."
+	@echo "Compiling SRC $<..."
+	@mkdir -p $(dir $@)
+	@$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/$(COMMON_SRC_DIR)/%.o: $(COMMON_SRC_DIR)/%.c
+	@echo "Compiling COMMON_SRC $<..."
 	@mkdir -p $(dir $@)
 	@$(CC) $(CFLAGS) -c $< -o $@
 
@@ -151,30 +156,45 @@ print:
 
 -include $(DEP)
 
-# ==================== Phonies ====================
-
-.PHONY: all run clean print gdb valgrind
-
-
 # ==================== Daemon =====================
-# (adds -DDAEMONIZE flag)
-DAEMON_BIN := $(BIN_DIR)/optimizer-daemon
-daemon: CFLAGS += -DDAEMONIZE
-daemon: $(DAEMON_BIN)
+DAEMON_BIN := /usr/local/bin/optimizer-daemon
+SERVICE_FILE := optimizer-daemon.service
 
-$(DAEMON_BIN): $(OBJ) $(MAESTRO_LIB)
-	@echo "Creating daemon bin dir..."
-	@sudo mkdir -p /usr/local/bin
-	@echo "Linking daemon binary..."
-	@$(CC) $(LDFLAGS) $(OBJ) $(MAESTRO_LIB) $(MBEDTLS_LIBS) -o $@ $(LIBS) -lpthread -lm
-	@sudo chown root:root $@
-
-install-daemon: daemon
-	@echo "Installing daemon binary and systemd service..."
-	@sudo cp daemon.optimizer.service /etc/systemd/system/
+daemon-install: CFLAGS += -DDAEMONIZE
+daemon-install: $(OBJ) $(MAESTRO_LIB) $(SERVICE_FILE)
+	@echo "Building optimizer-daemon..."
+	@$(CC) $(LDFLAGS) $(OBJ) $(MAESTRO_LIB) $(MBEDTLS_LIBS) -o optimizer-daemon $(LIBS) -lm
+	@echo "Installing daemon binary to $(DAEMON_BIN)..."
+	@sudo install -m 0755 optimizer-daemon $(DAEMON_BIN)
+	@sudo chown root:root $(DAEMON_BIN)
+	@rm -f optimizer-daemon
+	@echo "Ensuring system user/group 'maestro' exists..."
+	@sudo id -u maestro >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin maestro
+	@echo "Creating runtime dirs and log file..."
+	@sudo mkdir -p $(RUN_DIRS)
+	@sudo touch $(RUN_FILES)
+	@sudo chown -R maestro:maestro $(RUN_DIRS) $(RUN_FILES)
+	@echo "Installing systemd service..."
+	@sudo install -m 0644 $(SERVICE_FILE) /etc/systemd/system/$(SERVICE_FILE)
 	@sudo systemctl daemon-reload
 	@sudo systemctl enable optimizer-daemon.service
-	@echo "Daemon installed. Run 'sudo systemctl start optimizer-daemon' to start."
+	@echo "Done. Start with:"
+	@echo "  sudo systemctl start optimizer-daemon.service"
 
-.PHONY: daemon install-daemon
+daemon-clean:
+	@echo "Stopping and disabling optimizer-daemon service..."
+	@sudo systemctl stop $(SERVICE_FILE) 2>/dev/null || true
+	@sudo systemctl disable $(SERVICE_FILE) 2>/dev/null || true
+	@echo "Removing systemd service file..."
+	@sudo rm -f /etc/systemd/system/$(SERVICE_FILE)
+	@sudo systemctl daemon-reload
+	@echo "Removing daemon binary..."
+	@sudo rm -f $(DAEMON_BIN)
+	@echo "Cleaning up runtime and configuration directories..."
+	@echo "Optionally removing 'maestro' user (comment out if shared)..."
+	@sudo userdel maestro 2>/dev/null || true
+	@echo "Daemon clean complete."
 
+# ==================== Phonies ====================
+
+.PHONY: all run clean print gdb valgrind asan run-asan install daemon-install daemon-clean

@@ -1,5 +1,6 @@
 #include "optimizer.h"
 #include "calculations.h"
+#include "data/facility.h"
 #include "data/electricity_structs.h"
 #include "electricity_cache_handler.h"
 #include "maestromodules/thread_pool.h"
@@ -24,13 +25,13 @@ void optimizer_run_ech(void* _ech_conf)
 
   res = ech_init(&E, Conf);
   if (res != 0) {
-    LOG_ERROR("ech_init"); // TODO: Logger
+    LOG_ERROR("ech_init");
     return;
   }
 
   res = ech_update_cache(&E);
   if (res != 0) {
-    LOG_ERROR("ech_update_cache"); // TODO: Logger
+    LOG_ERROR("ech_update_cache");
     ech_dispose(&E);
     return;
   }
@@ -46,13 +47,13 @@ void optimizer_run_wch(void* _wch_conf)
 
   res = wch_init(&W, Conf);
   if (res != 0) {
-    LOG_ERROR("wch_init"); // TODO: Logger
+    LOG_ERROR("wch_init");
     return;
   }
 
   res = wch_update_cache(&W);
   if (res != 0) {
-    LOG_ERROR("wch_update_cache"); // TODO: Logger
+    LOG_ERROR("wch_update_cache");
     wch_dispose(&W);
     return;
   }
@@ -94,34 +95,31 @@ int optimizer_config_set(Optimizer_Config* _OC)
     free(_OC->data_calcs_dir);
 
   const char* keys[] = {
-      "sys.max_threads",        "data.spots.currency",
-      "data.spots.price_class", "data.dir",
-      "data.spots.dir",         "data.weather.dir",
-      "data.calcs.dir",         "facility.latitude",
-      "facility.longitude",     "facility.panel.tilt",
-      "facility.panel.azimuth", "facility.panel.m2_size",
+    "sys.max_threads",
+    "data.dir",
+    "data.spots.dir",
+    "data.weather.dir",
+    "data.calcs.dir",
+    "conf.facility.dir"
   };
 
   char conf_max_threads[64] = {0};
-  char conf_currency[64] = {0};
-  char conf_price_class[64] = {0};
   char conf_data_dir[64] = {0};
   char conf_data_spots_dir[64] = {0};
   char conf_data_weather_dir[64] = {0};
   char conf_data_calcs_dir[64] = {0};
-  char conf_facility_lat[64] = {0};
-  char conf_facility_lon[64] = {0};
-  char conf_solar_tilt[64] = {0};
-  char conf_solar_azimuth[64] = {0};
-  char conf_solar_size[64] = {0};
+  char conf_facility_dir[64] = {0};
 
   char* values[] = {
-      conf_max_threads,    conf_currency,         conf_price_class,    conf_data_dir,
-      conf_data_spots_dir, conf_data_weather_dir, conf_data_calcs_dir, conf_facility_lat,
-      conf_facility_lon,   conf_solar_tilt,       conf_solar_azimuth,  conf_solar_size,
+    conf_max_threads,
+    conf_data_dir,
+    conf_data_spots_dir, 
+    conf_data_weather_dir, 
+    conf_data_calcs_dir, 
+    conf_facility_dir,
   };
 
-  int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 64, 12);
+  int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 64, 6);
 
   if (res != SUCCESS)
     return res;
@@ -132,74 +130,68 @@ int optimizer_config_set(Optimizer_Config* _OC)
   else
     _OC->max_threads = 1;
 
-  _OC->currency = SPOT_SEK;
-
-  int price_class = atoi(conf_price_class) - 1;
-  if (price_class >= 0 && price_class <= 3)
-    _OC->price_class = price_class;
-  else
-    _OC->price_class = 0;
-
-  float lat = atof(conf_facility_lat);
-  float lon = atof(conf_facility_lon);
-  _OC->latitude = lat;
-  _OC->longitude = lon;
-
-  int panel_tilt = atoi(conf_solar_tilt);
-  int panel_azimuth = atoi(conf_solar_azimuth);
-  int panel_size = atoi(conf_solar_size);
-  _OC->panel_tilt = (unsigned short)panel_tilt;
-  _OC->panel_azimuth = (short)panel_azimuth;
-  _OC->panel_size = (unsigned short)panel_size;
-
   LOG_INFO("max_threads: %i\n", _OC->max_threads);
-  LOG_INFO("latitude: %f, longitude %f\n", _OC->longitude, _OC->latitude);
-  LOG_INFO("azimuth %i, tilt: %i\n", _OC->panel_azimuth, _OC->panel_tilt);
 
-  /* if (strcmp(values[1], "SEK") == 0)
-    _OC->config.currency = SPOT_SEK; */
 
-  /* THESE DO NOT WORK, END UP NULL... */
+  /* THESE DO NOT WORK, END UP NULL...
+   * ?? */
   size_t path_len;
   if (strcmp(conf_data_dir, "") != 0) {
     path_len = strlen(conf_data_dir);
     _OC->data_dir = malloc(path_len + 1);
-    memcpy(_OC->data_dir, conf_data_dir, path_len);
-    _OC->data_dir[path_len] = '\0';
     if (!_OC->data_dir) {
       LOG_ERROR("malloc");
       return ERR_NO_MEMORY;
     }
+    memcpy(_OC->data_dir, conf_data_dir, path_len);
+    _OC->data_dir[path_len] = '\0';
   }
   if (strcmp(conf_data_spots_dir, "") != 0) {
     path_len = strlen(conf_data_spots_dir);
     _OC->data_spots_dir = malloc(path_len + 1);
-    memcpy(_OC->data_spots_dir, conf_data_spots_dir, path_len);
-    _OC->data_spots_dir[path_len] = '\0';
     if (!_OC->data_spots_dir) {
       LOG_ERROR("malloc");
       return ERR_NO_MEMORY;
     }
+    memcpy(_OC->data_spots_dir, conf_data_spots_dir, path_len);
+    _OC->data_spots_dir[path_len] = '\0';
   }
   if (strcmp(conf_data_weather_dir, "") != 0) {
     path_len = strlen(conf_data_weather_dir);
     _OC->data_weather_dir = malloc(path_len + 1);
-    memcpy(_OC->data_weather_dir, conf_data_weather_dir, path_len);
-    _OC->data_weather_dir[path_len] = '\0';
     if (!_OC->data_weather_dir) {
       LOG_ERROR("malloc");
       return ERR_NO_MEMORY;
     }
+    memcpy(_OC->data_weather_dir, conf_data_weather_dir, path_len);
+    _OC->data_weather_dir[path_len] = '\0';
   }
   if (strcmp(conf_data_calcs_dir, "") != 0) {
     path_len = strlen(conf_data_calcs_dir);
     _OC->data_calcs_dir = malloc(path_len + 1);
-    memcpy(_OC->data_calcs_dir, conf_data_calcs_dir, path_len);
-    _OC->data_calcs_dir[path_len] = '\0';
     if (!_OC->data_calcs_dir) {
       LOG_ERROR("malloc");
       return ERR_NO_MEMORY;
     }
+    memcpy(_OC->data_calcs_dir, conf_data_calcs_dir, path_len);
+    _OC->data_calcs_dir[path_len] = '\0';
+  }
+  if (strcmp(conf_facility_dir, "") != 0) {
+    path_len = strlen(conf_facility_dir);
+    _OC->data_calcs_dir = malloc(path_len + 1);
+    if (!_OC->data_calcs_dir) {
+      LOG_ERROR("malloc");
+      return ERR_NO_MEMORY;
+    }
+    memcpy(_OC->facility_dir, conf_facility_dir, path_len);
+    _OC->facility_dir[path_len] = '\0';
+  }
+
+  /* Facility configs */
+  _OC->facility_configs = facility_get_configs(_OC->facility_dir, _OC->facility_count);
+  if (!_OC->facility_configs || !_OC->facility_configs[0]) {
+    LOG_ERROR("Otpimzer failed to get valid facility configs.");
+    return ERR_INTERNAL;
   }
 
   return SUCCESS;
@@ -207,7 +199,7 @@ int optimizer_config_set(Optimizer_Config* _OC)
 
 int optimizer_run(Optimizer* _O)
 {
-  int i;
+  int i = 0; 
   int res;
 
   sqlite3* db = NULL;
@@ -215,6 +207,7 @@ int optimizer_run(Optimizer* _O)
 
   snprintf(db_path, sizeof(db_path), "%s/cache.db", _O->config.data_dir);
 
+  /* Initiate Squeeeel */
   res = sql_helper_open(&db, db_path);
   if (res != SUCCESS) {
     LOG_ERROR("sql_helper_open (%i)", res);
@@ -230,62 +223,99 @@ int optimizer_run(Optimizer* _O)
 
   sql_helper_close(db);
 
-  /* Define cache runs with config structs */
-  ECH_Conf ECH_Config[4] = {0}; // One per each price_class
-  for (i = 0; i < 4; i++) {
-    ECH_Config[i].price_class = i;
-    ECH_Config[i].currency = _O->config.currency;
-    if (_O->config.data_spots_dir != NULL)
-      ECH_Config[i].data_dir = _O->config.data_dir;
-  }
-  WCH_Conf WCH_Config[2] = {0}; // One per current+forecast
-  WCH_Config[0].forecast = true;
-  WCH_Config[1].forecast = false;
-  for (i = 0; i < 2; i++) {
-    WCH_Config[i].latitude = _O->config.latitude;
-    WCH_Config[i].longitude = _O->config.longitude;
-    WCH_Config[i].panel_azimuth = _O->config.panel_azimuth;
-    WCH_Config[i].panel_tilt = _O->config.panel_tilt;
-    if (_O->config.data_weather_dir != NULL)
-      WCH_Config[i].data_dir = _O->config.data_weather_dir;
-  }
-
   /* Initiate thread pools */
   _O->thread_pool = tp_init(_O->config.max_threads);
   if (!_O->thread_pool) {
-    LOG_ERROR("tp_init"); // TODO: Logger
+    LOG_ERROR("tp_init");
     return ERR_FATAL;
   }
 
-  /* Run cache handler threads */
+  /* Define cache runs with config structs */
+  /* Electricity spots are indefferent to facility configs */
+  ECH_Conf ECH_Config[4] = {0}; // One per each price_class
+  for (i = 0; i < 4; i++) {
+    ECH_Config[i].price_class = i;
+    ECH_Config[i].currency = SPOT_SEK; // Only have support for SEK
+    if (_O->config.data_spots_dir != NULL)
+      ECH_Config[i].data_dir = _O->config.data_dir;
+  }
+
+  /* Start electricity cache handler threads */
   for (i = 0; i < 4; i++) {
     TP_Task Task = {optimizer_run_ech, &ECH_Config[i], NULL, NULL};
     res = tp_task_add(_O->thread_pool, &Task);
     if (res != 0)
-      LOG_ERROR("tp_task_add"); // TODO: Logger
+      LOG_ERROR("tp_task_add");
   }
 
-  for (i = 0; i < 2; i++) {
-    TP_Task Task = {optimizer_run_wch, &WCH_Config[i], NULL, NULL};
+  /* Weather gets two runs per facility: forecast and current */
+  /* TODO: Find a way to not run weather less times, meteo gets a lot of requests 
+   * - maybe check if last saved weather time already is same or more than last electricity time
+   * no need to run if we don't have enough electricity data anyway */
+  WCH_Conf* WCH_Confs = calloc(1, sizeof(WCH_Conf) * _O->config.facility_count * 2);
+  if (!WCH_Confs) {
+    LOG_ERROR("calloc");
+    return ERR_NO_MEMORY;
+  }
+
+  for (i = 0; i < (int)_O->config.facility_count; i++) {
+    int j = i * 2; // destination index
+
+    /* Forecast weather run */
+    WCH_Confs[j].forecast = true;
+    WCH_Confs[j].latitude = _O->config.facility_configs[i]->lat;
+    WCH_Confs[j].longitude = _O->config.facility_configs[i]->lon;
+    WCH_Confs[j].data_dir = _O->config.data_weather_dir; // TODO: Switch to db path when db
+
+    /* Facility might not have solarpanels, set to zero if so 
+     * TODO: differentiate weather that has panels and that don't in WCH as well */
+    if (_O->config.facility_configs[i]->panel != NULL) {
+      WCH_Confs[j].panel_azimuth = _O->config.facility_configs[i]->panel->azimuth;
+      WCH_Confs[j].panel_tilt = _O->config.facility_configs[i]->panel->tilt;
+    }
+    else {
+      WCH_Confs[j].panel_azimuth = 0;
+      WCH_Confs[j].panel_tilt = 0;
+    }
+
+    /* Current weather run */
+    WCH_Confs[j + 1].forecast = false;
+    WCH_Confs[j + 1].latitude = _O->config.facility_configs[i]->lat;
+    WCH_Confs[j + 1].longitude = _O->config.facility_configs[i]->lon;
+    WCH_Confs[j + 1].data_dir = _O->config.data_weather_dir; // TODO: Switch to db path when db
+
+    /* Facility might not have solarpanels, set to zero if so 
+     * TODO: differentiate weather that has panels and that don't in WCH as well */
+    if (_O->config.facility_configs[i]->panel != NULL) {
+      WCH_Confs[j + 1].panel_azimuth = _O->config.facility_configs[i]->panel->azimuth;
+      WCH_Confs[j + 1].panel_tilt = _O->config.facility_configs[i]->panel->tilt;
+    }
+    else {
+      WCH_Confs[j + 1].panel_azimuth = 0;
+      WCH_Confs[j + 1].panel_tilt = 0;
+    }
+  }
+
+  /* Start weather cache handler threads */
+  for (i = 0; i < (int)(_O->config.facility_count * 2); i++) {
+    TP_Task Task = {optimizer_run_wch, &WCH_Confs[i], NULL, NULL};
     res = tp_task_add(_O->thread_pool, &Task);
     if (res != 0)
-      LOG_ERROR("tp_task_add"); // TODO: Logger
+      LOG_ERROR("tp_task_add");
   }
 
   tp_wait(_O->thread_pool);
   tp_dispose(_O->thread_pool);
   _O->thread_pool = NULL;
 
-  /* run calculator */
-
+  /* Run calculator */
   Calc_Args C_Args = {
-      .calcs_dir = _O->config.data_calcs_dir,
-      .data_dir = _O->config.data_dir,
-      .weather_dir = _O->config.data_weather_dir,
-      .price_class = _O->config.price_class,
-      .currency = _O->config.currency,
-      .max_threads = _O->config.max_threads,
-      .panel_size = (int)_O->config.panel_size,
+      .calcs_dir        = _O->config.data_calcs_dir,
+      .data_dir         = _O->config.data_dir,
+      .weather_dir      = _O->config.data_weather_dir,
+      .facility_configs = _O->config.facility_configs,
+      .facility_count   = _O->config.facility_count,
+      .max_threads      = _O->config.max_threads,
   };
 
   if (calc_create_reports(&C_Args) != SUCCESS) {
@@ -302,6 +332,8 @@ void optimizer_dispose(Optimizer* _O)
     tp_wait(_O->thread_pool);
     tp_dispose(_O->thread_pool);
   }
+
+  facility_dispose(_O->config.facility_configs, _O->config.facility_count);
 
   if (_O->config.data_dir)
     free(_O->config.data_dir);

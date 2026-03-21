@@ -2,6 +2,7 @@
 #define __OPTIMIZER_H__
 
 #include "data/electricity_structs.h"
+#include "data/facility.h"
 #include "electricity_cache_handler.h"
 #include "maestromodules/thread_pool.h"
 #include "weather_cache_handler.h"
@@ -14,34 +15,23 @@
 
 typedef struct
 {
-  char* data_dir;
-  char* data_spots_dir;
-  char* data_weather_dir;
-  char* data_calcs_dir;
+  char*             data_dir;
+  char*             data_spots_dir;
+  char*             data_weather_dir;
+  char*             data_calcs_dir;
+  char*             facility_dir;
 
-  SpotCurrency currency;
-  SpotPriceClass price_class;
+  Facility_Config** facility_configs;
+  size_t            facility_count;
 
-  float latitude;
-  float longitude;
-
-  short panel_azimuth; // +/- 180
-  unsigned short panel_tilt;
-  unsigned short panel_size;
-
-  uint8_t max_threads;
-
-  // bool      ext_spot;
-  // bool      ext_weather;
-
-  // ECH_Config* ech_conf;
+  uint8_t           max_threads;
 
 } Optimizer_Config;
 
 typedef struct
 {
-  Optimizer_Config config;
-  Thread_Pool* thread_pool;
+  Optimizer_Config  config;
+  Thread_Pool*      thread_pool;
 
 } Optimizer;
 

@@ -1,5 +1,6 @@
 #include "calculations.h"
 #include "data/electricity_structs.h"
+#include "data/facility.h"
 #include "data/weather_structs.h"
 #include "electricity_cache_handler.h"
 #include "maestroutils/file_utils.h"
@@ -14,8 +15,6 @@
 #include "sqlite_helpers.h"
 #include <stdio.h>
 #include <time.h>
-// #define BASE_CACHE_PATH "/var/lib/maestro/spots"
-// #define AVG_CACHE_PATH "/var/lib/maestro/"
 
 /* --------------------------- Internal --------------------------- */
 
@@ -58,26 +57,38 @@ typedef struct
 
 typedef struct
 {
-  const Calc_Args* calc_args;
-  const Electricity_Spots* spots;
-  const Weather* weather; // pass as null before taskwork for no solar
-  ResultsInterval interval;
+  const Calc_Args*         calc_args;
+  const Facility_Config*   facility_config;
+  ResultsInterval          interval;
 
 } Calc_Thread_Args;
 
+
 void calc_daily_averages_threadtask(void* _context);
 
-static inline int
-calc_results_create(Calc_Results* _Res, const Calc_Args* _Args, const Electricity_Spots* _S,
-                    const Weather* _W,         // optional
-                    unsigned int _count,       // amount of spots
-                    ResultsInterval _interval, // output accuracy from quarterly data
-                    float _avg_thresh);
+static inline int calc_results_create(Calc_Results* _Res, 
+    const Facility_Config* _F,
+    const Electricity_Spots* _S,
+    const Weather* _W,         // optional
+    unsigned int _count,       // amount of expected output spots (e.g 24 or 96)
+    ResultsInterval _interval, // output accuracy from quarterly data (e.g 4 or 1)
+    float _avg_thresh);
 
-static inline int calc_results_json_create(const Calc_Results* _Res, const char* _filename);
+static inline int calc_results_json_create(
+    const Calc_Results* _Res, 
+    const char* _filename);
 
-static inline int calc_summary_create(const Calc_Results* _Res, const Calc_Args* _Args,
-                                      const char* _filename);
+static inline int calc_summary_create(
+    const Calc_Results* _Res, 
+    const Facility_Config* _F,
+    const char* _filename);
+
+static inline int calc_fetch_input_data(
+    Electricity_Spots* _S, 
+    Weather* _W, // optional
+    const Facility_Config* _Config, 
+    const char* _data_dir,
+    const char* _weather_dir /* Remove this one when WCH also uses db */);
 
 void calc_results_dispose(Calc_Results* _Res);
 
@@ -89,17 +100,34 @@ void calc_daily_averages_threadtask(void* _context)
     return;
 
   Calc_Thread_Args* T_Args = (Calc_Thread_Args*)_context;
+  const Facility_Config* F_Ptr = T_Args->facility_config;
   const Calc_Args* C_Args = T_Args->calc_args;
-  const Electricity_Spots* S = T_Args->spots;
-  const Weather* W = T_Args->weather;
 
-  if (!S || !C_Args || !C_Args->calcs_dir) {
-    LOG_ERROR("One or more args are missing");
+  if (!T_Args || !F_Ptr || !C_Args || !C_Args->calcs_dir) {
+    LOG_ERROR("One or more args are missing!");
     return;
   }
 
-  if (W != NULL && (S->price_count > W->count)) {
-    LOG_ERROR("Weather count must be higher than spot count");
+  /* Get facility input data */
+  Weather W = {0};
+  Weather* W_Ptr;
+  if (F_Ptr->panel != NULL)
+    W_Ptr = &W;
+  else
+    W_Ptr = NULL;
+
+  Electricity_Spots S = {0};
+  Electricity_Spots* S_Ptr = &S;
+
+  int res = calc_fetch_input_data(S_Ptr, W_Ptr, F_Ptr, 
+      C_Args->data_dir, C_Args->weather_dir);
+  if (res != SUCCESS) {
+    LOG_ERROR("calc_fetch_input_data");
+    return;
+  }
+
+  if (W_Ptr != NULL && (S_Ptr->price_count > W_Ptr->count)) {
+    LOG_ERROR("Something went wrong fetching input data");
     return;
   }
 
@@ -124,18 +152,22 @@ void calc_daily_averages_threadtask(void* _context)
   char today[11]; // YYYY-MM-DD
   strftime(today, sizeof(today), "%Y-%m-%d", &tm);
 
-  if (W != NULL) { // With solar
-    json_name_len =
-        snprintf(filename_json, sizeof(filename_json), "%s/Daily_%s_SP%i_SE%i_Solar.json",
-                 C_Args->calcs_dir, today, epd, C_Args->price_class + 1);
-    txt_name_len = snprintf(filename_txt, sizeof(filename_txt), "%s/Daily_%s_SP%i_SE%i_Solar.txt",
-                            C_Args->calcs_dir, today, epd, C_Args->price_class + 1);
-  } else {
-    json_name_len = snprintf(filename_json, sizeof(filename_json), "%s/Daily_%s_SP%i_SE%i.json",
-                             C_Args->calcs_dir, today, epd, C_Args->price_class + 1);
-    txt_name_len = snprintf(filename_txt, sizeof(filename_txt), "%s/Daily_%s_SP%i_SE%i.txt",
-                            C_Args->calcs_dir, today, epd, C_Args->price_class + 1);
-  }
+  json_name_len = snprintf(filename_json, sizeof(filename_json), 
+    "%s/%s-Daily_%s_SP%i_SE%i.json",
+    F_Ptr->name, C_Args->calcs_dir, today, epd, F_Ptr->price_class + 1);
+  txt_name_len = snprintf(filename_txt, sizeof(filename_txt), 
+    "%s/%s-Daily_%s_SP%i_SE%i.txt",
+    F_Ptr->name, C_Args->calcs_dir, today, epd, F_Ptr->price_class + 1);
+
+  // if (F_Ptr->panel != NULL) { // With solar
+  //   json_name_len = snprintf(filename_json, sizeof(filename_json), 
+  //     "%s/%s-Daily_%s_SP%i_SE%i_Solar.json",
+  //     F_Ptr->name, C_Args->calcs_dir, today, epd, F_Ptr->price_class + 1);
+  //   txt_name_len = snprintf(filename_txt, sizeof(filename_txt), 
+  //     "%s/%s-Daily_%s_SP%i_SE%i_Solar.txt",
+  //     F_Ptr->name, C_Args->calcs_dir, today, epd, F_Ptr->price_class + 1);
+  // } else {
+  // }
 
   if (json_name_len < 0 || (size_t)json_name_len >= sizeof(filename_json)) {
     LOG_ERROR("Failed to build filename_json");
@@ -147,7 +179,7 @@ void calc_daily_averages_threadtask(void* _context)
   }
 
   Calc_Results Results = {0};
-  if (calc_results_create(&Results, C_Args, S, W, epd, T_Args->interval, 0.25) != SUCCESS) {
+  if (calc_results_create(&Results, F_Ptr, S_Ptr, W_Ptr, epd, T_Args->interval, 0.25) != SUCCESS) {
     LOG_ERROR("calc_results_create");
     return;
   }
@@ -159,7 +191,7 @@ void calc_daily_averages_threadtask(void* _context)
   }
   LOG_INFO("%s created!", filename_json);
 
-  if (calc_summary_create(&Results, C_Args, filename_txt) != SUCCESS) {
+  if (calc_summary_create(&Results, F_Ptr, filename_txt) != SUCCESS) {
     LOG_ERROR("calc_summary_create");
     calc_results_dispose(&Results);
     return;
@@ -167,15 +199,20 @@ void calc_daily_averages_threadtask(void* _context)
   LOG_INFO("%s created!", filename_txt);
 
   calc_results_dispose(&Results);
+
+  if (S_Ptr->prices != NULL)
+    free(S_Ptr->prices);
+  wch_weather_dispose(&W);
 }
 
 // TODO: Consider highest/lowest prices more than arbitrary deviance from average
-static inline int
-calc_results_create(Calc_Results* _Res, const Calc_Args* _Args, const Electricity_Spots* _S,
-                    const Weather* _W,         // optional
-                    unsigned int _count,       // amount of expected output spots (e.g 24 or 96)
-                    ResultsInterval _interval, // output accuracy from quarterly data (e.g 4 or 1)
-                    float _avg_thresh)
+static inline int calc_results_create(Calc_Results* _Res, 
+    const Facility_Config* _F,
+    const Electricity_Spots* _S,
+    const Weather* _W,         // optional
+    unsigned int _count,       // amount of expected output spots (e.g 24 or 96)
+    ResultsInterval _interval, // output accuracy from quarterly data (e.g 4 or 1)
+    float _avg_thresh)
 {
 
   if (!_S || _interval == 0                     // don't divide by zero
@@ -301,7 +338,7 @@ calc_results_create(Calc_Results* _Res, const Calc_Args* _Args, const Electricit
     /* Get how much money we gain from solar panels */
     if (_W) {
       if (solar_sum > 0) {
-        float solar_watt = (solar_sum * _Args->panel_size) / _interval;
+        float solar_watt = (solar_sum * _F->panel->size) / _interval;
         float solar_gain = (solar_watt / 1000) * spot_price;
         double solar_gain_deviation = ((solar_gain - solars_gain_avg) / solars_gain_avg);
         _Res->solar_gains[i] = solar_gain;
@@ -405,10 +442,11 @@ static inline int calc_results_json_create(const Calc_Results* _Res, const char*
 }
 
 /* TODO: Fix concurrent writes, ie. better use of mutex lock */
-static inline int calc_summary_create(const Calc_Results* _Res, const Calc_Args* _Args,
+static inline int calc_summary_create(const Calc_Results* _Res, 
+                                      const Facility_Config* _F,
                                       const char* _filename)
 {
-  if (!_Res || !_Args || !_Res->timestamps || !_Res->spot_prices || !_Res->spot_prices_deviation ||
+  if (!_Res || !_F || !_Res->timestamps || !_Res->spot_prices || !_Res->spot_prices_deviation ||
       !_Res->spot_prices_cheapness)
     return ERR_INVALID_ARG;
 
@@ -426,16 +464,15 @@ static inline int calc_summary_create(const Calc_Results* _Res, const Calc_Args*
   fprintf(file, "              ENERGY CALCULATION SUMMARY REPORT              \n");
   fprintf(file, "============================================================\n");
   fprintf(file, "Generated at: %s\n", time_now_str);
-  fprintf(file, "Directory:    %s\n", _Args->calcs_dir);
-  fprintf(file, "Spot Class:   %d\n", (int)_Args->price_class);
-  fprintf(file, "Currency:     %d\n", (int)_Args->currency);
-  fprintf(file, "Threads:      %d\n", _Args->max_threads);
-  fprintf(file, "Panel Size:   %d\n", _Args->panel_size);
+  fprintf(file, "Spot Class:   %d\n", (int)_F->price_class);
+  fprintf(file, "Currency:     %d\n", (int)_F->currency);
   fprintf(file, "------------------------------------------------------------\n");
   fprintf(file, "Average Spot Price: %.2f %s/kW\n", _Res->spot_prices_avg, "SEK");
   fprintf(file, "Cheapness Threshold: %.2f%%\n", _Res->cheapness_thresh * 100);
-  if (_Res->solar_gains && _Res->solar_gains_deviation)
+  if (_Res->solar_gains && _Res->solar_gains_deviation) {
+      fprintf(file, "Panel Size:   %d\n", _F->panel->size);
       fprintf(file, "Average Solar Gains: %.2f SEK\n", _Res->solar_gains_avg);
+  }
   fprintf(file, "Data Points: %u\n", _Res->count);
   fprintf(file, "============================================================\n\n");
 
@@ -492,12 +529,17 @@ static inline int calc_summary_create(const Calc_Results* _Res, const Calc_Args*
 
 // TODO: Improve this shit, write proper cache fetching interfaces
 //  just based on date range, caller caring only about initing data struct
-int calc_fetch_input_data(Electricity_Spots* _S, Weather* _W, Calc_Args* _Args)
+inline int calc_fetch_input_data(Electricity_Spots* _S, 
+    Weather* _W, 
+    const Facility_Config* _F, 
+    const char* _data_dir,
+    const char* _weather_dir /* Remove this one when WCH also uses db */)
 {
-  if (!_S || !_W || !_Args)
+  int res;
+
+  if (!_S || !_F)
     return ERR_INVALID_ARG;
 
-  int res;
   memset(_S, 0, sizeof(Electricity_Spots));
   memset(_W, 0, sizeof(Weather));
 
@@ -505,7 +547,7 @@ int calc_fetch_input_data(Electricity_Spots* _S, Weather* _W, Calc_Args* _Args)
   time_t start = epoch_now_day() - 3600;
   time_t end = start + 86400;
 
-  res = ech_get_spots_range(_S, _Args->data_dir, _Args->price_class, _Args->currency, start, end);
+  res = ech_get_spots_range(_S, _data_dir, _F->price_class, _F->currency, start, end);
   if (res != SUCCESS) {
     LOG_ERROR("ech_get_spots_range (%i)", res);
     return res;
@@ -513,33 +555,23 @@ int calc_fetch_input_data(Electricity_Spots* _S, Weather* _W, Calc_Args* _Args)
 
   printf("Number of spots: %d\n", _S->price_count);
 
-  /* Spots cache */
-  // time_t today = epoch_now_day();
-  // const char* spots_cache_path =
-  //     ech_get_cache_filepath(_Args->spots_dir, today, _Args->price_class, _Args->currency);
-  //
-  // res = ech_read_cache(_S, spots_cache_path);
-  // if (res != 0) {
-  //   LOG_ERROR("ech_read_cache (%i)", res);
-  //   free((void*)spots_cache_path);
-  //   return res;
-  // }
-  // free((void*)spots_cache_path);
-  //
   // /* Weather cache */
   // // THIS IS STUPID, THERE'S A CHANCE ENOUGH TIME HAS PASSED AFTER wch_update_cache() THAT NO
   // FILENAME WITH THIS NAME EXISTS! ALSO NOT THE SAME STARTING INDEX AS SPOTS
   // // TODO: SWITCH TO MORE DYNAMIC CACHE FETCHING, i.e hdf5/db
-  time_t now = time(NULL);
-  const char* weather_cache_path = wch_get_cache_json_filepath(_Args->weather_dir, now, true);
+  if (_W) 
+  {
+    time_t now = time(NULL);
+    const char* weather_cache_path = wch_get_cache_json_filepath(_weather_dir, now, true);
 
-  if (wch_read_cache_json(_W, weather_cache_path) != SUCCESS) {
-    LOG_ERROR("wch_read_cache_json");
+    if (wch_read_cache_json(_W, weather_cache_path) != SUCCESS) {
+      LOG_ERROR("wch_read_cache_json");
+      free((void*)weather_cache_path);
+      free(_S->prices);
+      return ERR_INTERNAL;
+    }
     free((void*)weather_cache_path);
-    free(_S->prices);
-    return ERR_INTERNAL;
   }
-  free((void*)weather_cache_path);
 
   return SUCCESS;
 }
@@ -565,68 +597,51 @@ void calc_results_dispose(Calc_Results* _Res)
   _Res = NULL;
 }
 
-/* --------------------------- Interface --------------------------- */
-
-int calc_create_reports(Calc_Args* _Args)
+int calc_create_reports(const Calc_Args* _Args)
 {
-  int res;
-  if (!_Args->calcs_dir || !_Args->data_dir || !_Args->weather_dir)
+  int res, max_threads;
+  size_t calc_runs_count, i;
+
+  if (!_Args->calcs_dir || !_Args->data_dir || !_Args->weather_dir ||
+      _Args->facility_count < 1)
     return ERR_INVALID_ARG;
 
   create_directory_if_not_exists(_Args->calcs_dir);
 
   if (_Args->max_threads < 1)
-    _Args->max_threads = 1;
+    max_threads = 1;
+  else
+    max_threads = _Args->max_threads;
 
-  Thread_Pool* TP = tp_init(_Args->max_threads);
+  Thread_Pool* TP = tp_init(max_threads);
   if (!TP) {
     LOG_ERROR("tp_init");
     return ERR_FATAL;
   }
 
-  /* Get cache */
-  Weather W = {0};
-  Weather* W_Ptr = &W;
-  Electricity_Spots S = {0};
-  Electricity_Spots* S_Ptr = &S;
-
-  res = calc_fetch_input_data(S_Ptr, W_Ptr, _Args);
-  if (res != SUCCESS) {
-    LOG_ERROR("calc_fetch_input_data");
-    return ERR_FATAL;
+  /* Allocate threadtask arguments, two per facility (one hourly one quarterly) */
+  calc_runs_count = 2 * _Args->facility_count;
+  Calc_Thread_Args* T_Args = calloc(1, (calc_runs_count * sizeof(Calc_Thread_Args)));
+  if (!T_Args) {
+    LOG_ERROR("calloc");
+    tp_dispose(TP);
+    return ERR_NO_MEMORY;
   }
 
-  /* Define threadtask arguments */
-  Calc_Thread_Args Thread_Args[4] = {
-      {
-          .calc_args = _Args,
-          .spots = S_Ptr,
-          .weather = W_Ptr,
-          .interval = HOURLY,
-      },
-      {
-          .calc_args = _Args,
-          .spots = S_Ptr,
-          .weather = W_Ptr,
-          .interval = QUARTERLY,
-      },
-      {
-          .calc_args = _Args,
-          .spots = S_Ptr,
-          .weather = NULL,
-          .interval = HOURLY,
-      },
-      {
-          .calc_args = _Args,
-          .spots = S_Ptr,
-          .weather = NULL,
-          .interval = QUARTERLY,
-      },
-  };
+  for (i = 0; i < _Args->facility_count; i++) {
+    int j = i * 2;
+    T_Args[j].calc_args = _Args;
+    T_Args[j].facility_config = _Args->facility_configs[i];
+    T_Args[j].interval = QUARTERLY;
+    
+    T_Args[j+1].calc_args = _Args;
+    T_Args[j+1].facility_config = _Args->facility_configs[i];
+    T_Args[j+1].interval = HOURLY;
+  }
 
   /* Define and start threadpool tasks */
-  for (int i = 0; i < 4; i++) {
-    TP_Task Task = {calc_daily_averages_threadtask, &Thread_Args[i], NULL, NULL};
+  for (i = 0; i < calc_runs_count; i++) {
+    TP_Task Task = {calc_daily_averages_threadtask, &T_Args[i], NULL, NULL};
     res = tp_task_add(TP, &Task);
     if (res != 0)
       LOG_ERROR("tp_task_add (%i)", res);
@@ -636,9 +651,6 @@ int calc_create_reports(Calc_Args* _Args)
   /* Wait for threads to finish then dispose */
   tp_dispose(TP);
 
-  if (S_Ptr->prices != NULL)
-    free(S_Ptr->prices);
-  wch_weather_dispose(&W);
 
   return 0;
 }

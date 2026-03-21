@@ -10,12 +10,18 @@ ExecStop=/bin/kill -TERM $MAINPID
 Restart=always
 RestartSec=5
 PIDFile=/run/optimizer.pid
-User=nobody
-Group=nogroup
+
+# Dedicated unprivileged user/group
+User=maestro
+Group=maestro
+
+# systemd will create /run/optimizer with this owner
 RuntimeDirectory=optimizer
+RuntimeDirectoryMode=0750
+
+# Log file is created beforehand and owned by maestro
 StandardOutput=append:/var/log/maestro.log
 StandardError=append:/var/log/maestro.log
 
 [Install]
 WantedBy=multi-user.target
-

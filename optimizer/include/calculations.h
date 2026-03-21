@@ -1,22 +1,28 @@
 #ifndef __CALCULATIONS_H__
 #define __CALCULATIONS_H__
 #include "data/electricity_structs.h"
+#include "data/facility.h"
 
 typedef struct
 {
-  const char* calcs_dir;
-  const char* data_dir;
-  const char* weather_dir;
-  SpotPriceClass price_class;
-  SpotCurrency currency;
+  char* calcs_dir;
+  char* data_dir;
+  char* weather_dir;
+
+  Facility_Config** facility_configs;
+  size_t            facility_count;
+
+  // SpotPriceClass price_class;
+  // SpotCurrency currency;
+  // int panel_size;
+
   int max_threads;
-  int panel_size;
 
 } Calc_Args;
 
 /* ======================= INTERFACE ======================= */
 
-int calc_create_reports(Calc_Args* _Args);
+int calc_create_reports(const Calc_Args* _Args);
 
 /* ========================================================= */
 
