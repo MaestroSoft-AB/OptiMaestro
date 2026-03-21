@@ -25,7 +25,8 @@ SRC_DIR 			 := src
 COMMON_SRC_DIR := ../common/src
 
 SRC 			 := $(shell find -L $(SRC_DIR) -type f -name '*.c')
-COMMON_SRC := $(shell find -L $(COMMON_SRC_DIR) -type f -name '*.c')
+COMMON_SRC := $(shell cd $(COMMON_SRC_DIR) && find -L . -type f -name '*.c')
+COMMON_SRC := $(patsubst ./%,%,$(COMMON_SRC))
 
 # ----- MaestroCore (submodule) -----
 MAESTRO_DIR ?= ../external/MaestroCore
@@ -69,7 +70,7 @@ LIBS := -lcurl
 
 # Map .c → .o
 SRC_OBJ   	:= $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/$(SRC_DIR)/%.o,$(SRC))
-COMMON_OBJ  := $(patsubst $(COMMON_SRC_DIR)/%.c,$(BUILD_DIR)/$(COMMON_SRC_DIR)/%.o,$(COMMON_SRC))
+COMMON_OBJ := $(patsubst %.c,$(BUILD_DIR)/common/src/%.o,$(COMMON_SRC))
 
 OBJ := $(SRC_OBJ) $(COMMON_OBJ) 
 
@@ -104,7 +105,7 @@ $(BUILD_DIR)/$(SRC_DIR)/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(dir $@)
 	@$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/$(COMMON_SRC_DIR)/%.o: $(COMMON_SRC_DIR)/%.c
+$(BUILD_DIR)/common/src/%.o: $(COMMON_SRC_DIR)/%.c
 	@echo "Compiling COMMON_SRC $<..."
 	@mkdir -p $(dir $@)
 	@$(CC) $(CFLAGS) -c $< -o $@

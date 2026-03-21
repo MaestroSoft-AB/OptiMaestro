@@ -16,8 +16,8 @@
 typedef struct
 {
   char*             data_dir;
-  char*             data_spots_dir;
-  char*             data_weather_dir;
+  // char*             data_spots_dir;
+  // char*             data_weather_dir;
   char*             data_calcs_dir;
   char*             facility_dir;
 
@@ -32,6 +32,7 @@ typedef struct
 {
   Optimizer_Config  config;
   Thread_Pool*      thread_pool;
+  SqlHelper sqlhelper;
 
 } Optimizer;
 

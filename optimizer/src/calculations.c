@@ -9,7 +9,6 @@
 #include <maestromodules/thread_pool.h>
 #include <maestroutils/error.h>
 #include <maestroutils/file_logging.h>
-#include <maestroutils/math_utils.h>
 #include <pthread.h>
 #define MAESTROUTILS_WITH_CJSON 1 // get rid of stupid lsp error
 #include "sqlite_helpers.h"
@@ -83,12 +82,11 @@ static inline int calc_summary_create(
     const Facility_Config* _F,
     const char* _filename);
 
-static inline int calc_fetch_input_data(
-    Electricity_Spots* _S, 
-    Weather* _W, // optional
-    const Facility_Config* _Config, 
-    const char* _data_dir,
-    const char* _weather_dir /* Remove this one when WCH also uses db */);
+static inline int calc_fetch_input_data(Electricity_Spots* _S, 
+    Weather* _W, 
+    SqlHelper* _Sql,
+    const Facility_Config* _F, 
+    const char* _data_dir);
 
 void calc_results_dispose(Calc_Results* _Res);
 
@@ -102,8 +100,10 @@ void calc_daily_averages_threadtask(void* _context)
   Calc_Thread_Args* T_Args = (Calc_Thread_Args*)_context;
   const Facility_Config* F_Ptr = T_Args->facility_config;
   const Calc_Args* C_Args = T_Args->calc_args;
+  SqlHelper* Sql = C_Args->sqlhelper;
 
-  if (!T_Args || !F_Ptr || !C_Args || !C_Args->calcs_dir) {
+  if (!T_Args || !F_Ptr || !C_Args || 
+      !C_Args->calcs_dir || !C_Args->data_dir || !Sql) {
     LOG_ERROR("One or more args are missing!");
     return;
   }
@@ -119,8 +119,8 @@ void calc_daily_averages_threadtask(void* _context)
   Electricity_Spots S = {0};
   Electricity_Spots* S_Ptr = &S;
 
-  int res = calc_fetch_input_data(S_Ptr, W_Ptr, F_Ptr, 
-      C_Args->data_dir, C_Args->weather_dir);
+  int res = calc_fetch_input_data(S_Ptr, W_Ptr, Sql,  F_Ptr, 
+      C_Args->data_dir);
   if (res != SUCCESS) {
     LOG_ERROR("calc_fetch_input_data");
     return;
@@ -128,8 +128,9 @@ void calc_daily_averages_threadtask(void* _context)
 
   if (W_Ptr != NULL && (S_Ptr->price_count > W_Ptr->count)) {
     LOG_ERROR("Something went wrong fetching input data");
-    return;
-  }
+
+  return;
+}
 
   int epd = 0; // entries-per-day
   if (T_Args->interval == QUARTERLY)
@@ -154,10 +155,10 @@ void calc_daily_averages_threadtask(void* _context)
 
   json_name_len = snprintf(filename_json, sizeof(filename_json), 
     "%s/%s-Daily_%s_SP%i_SE%i.json",
-    F_Ptr->name, C_Args->calcs_dir, today, epd, F_Ptr->price_class + 1);
+    C_Args->calcs_dir, F_Ptr->name, today, epd, F_Ptr->price_class + 1);
   txt_name_len = snprintf(filename_txt, sizeof(filename_txt), 
     "%s/%s-Daily_%s_SP%i_SE%i.txt",
-    F_Ptr->name, C_Args->calcs_dir, today, epd, F_Ptr->price_class + 1);
+    C_Args->calcs_dir, F_Ptr->name, today, epd, F_Ptr->price_class + 1);
 
   // if (F_Ptr->panel != NULL) { // With solar
   //   json_name_len = snprintf(filename_json, sizeof(filename_json), 
@@ -246,10 +247,10 @@ static inline int calc_results_create(Calc_Results* _Res,
       return ERR_INVALID_ARG;
     }
 
-    int synced_weather_count = _W->count - weather_index_start + 1;
+    int synced_weather_count = _W->count - weather_index_start; // removed +1
     if (synced_weather_count < (int)_S->price_count) {
       _Res->count = synced_weather_count / _interval;
-      spot_index_start = (int)_S->price_count - synced_weather_count - 1;
+      spot_index_start = (int)_S->price_count - synced_weather_count; // removed -1
     }
     // printf("synced_weather_count: %i\n",  synced_weather_count);
     // printf("spot index start: %i\n", spot_index_start);
@@ -527,50 +528,57 @@ static inline int calc_summary_create(const Calc_Results* _Res,
   return SUCCESS;
 }
 
-// TODO: Improve this shit, write proper cache fetching interfaces
-//  just based on date range, caller caring only about initing data struct
-inline int calc_fetch_input_data(Electricity_Spots* _S, 
-    Weather* _W, 
+static inline int calc_fetch_input_data(Electricity_Spots* _S, 
+    Weather* _W, // optional
+    SqlHelper* _Sql,
     const Facility_Config* _F, 
-    const char* _data_dir,
-    const char* _weather_dir /* Remove this one when WCH also uses db */)
+    const char* _data_dir)
 {
   int res;
-
-  if (!_S || !_F)
+  if (!_S || !_F || !_Sql) {
     return ERR_INVALID_ARG;
-
-  memset(_S, 0, sizeof(Electricity_Spots));
-  memset(_W, 0, sizeof(Weather));
-
-  // TODO: Make this nicer please
-  time_t start = epoch_now_day() - 3600;
-  time_t end = start + 86400;
-
-  res = ech_get_spots_range(_S, _data_dir, _F->price_class, _F->currency, start, end);
-  if (res != SUCCESS) {
-    LOG_ERROR("ech_get_spots_range (%i)", res);
-    return res;
   }
 
-  printf("Number of spots: %d\n", _S->price_count);
+  memset(_S, 0, sizeof(Electricity_Spots));
+
+  time_t start = (epoch_now_day() + 86400) - 3600;
+  time_t end = start + 86400;
+
+  res = ech_get_spots_range(_Sql, _S, _data_dir, _F->price_class,
+                            _F->currency, start, end);
+
+  if (res != SUCCESS) {
+    LOG_WARN("No spot data for tomorrow, falling back to today");
+
+    start = epoch_now_day() - 3600;
+    end = start + 86400;
+
+    res = ech_get_spots_range(_Sql, _S, _data_dir, _F->price_class,
+                              _F->currency, start, end);
+
+    if (res != SUCCESS) {
+      LOG_ERROR("ech_get_spots_range failed for both tomorrow and today (%i)", res);
+      return res;
+    }
+  }
+
+  start = _S->prices[0].time_start;
+  end = _S->prices[_S->price_count - 1].time_end;
 
   // /* Weather cache */
-  // // THIS IS STUPID, THERE'S A CHANCE ENOUGH TIME HAS PASSED AFTER wch_update_cache() THAT NO
-  // FILENAME WITH THIS NAME EXISTS! ALSO NOT THE SAME STARTING INDEX AS SPOTS
-  // // TODO: SWITCH TO MORE DYNAMIC CACHE FETCHING, i.e hdf5/db
   if (_W) 
   {
-    time_t now = time(NULL);
-    const char* weather_cache_path = wch_get_cache_json_filepath(_weather_dir, now, true);
-
-    if (wch_read_cache_json(_W, weather_cache_path) != SUCCESS) {
-      LOG_ERROR("wch_read_cache_json");
-      free((void*)weather_cache_path);
+    memset(_W, 0, sizeof(Weather));
+    res = wch_get_weather_range(_Sql, _W, _F->lat, _F->lon,
+                                _F->panel->tilt, _F->panel->azimuth, true, start, end);
+    if (res != SUCCESS) {
+      LOG_ERROR("wch_get_weather_range (%i)", res);
       free(_S->prices);
-      return ERR_INTERNAL;
+      _S->prices = NULL;
+      return res;
     }
-    free((void*)weather_cache_path);
+    printf("Number of spots: %d\n", _S->price_count);
+
   }
 
   return SUCCESS;
@@ -597,13 +605,14 @@ void calc_results_dispose(Calc_Results* _Res)
   _Res = NULL;
 }
 
+/* --------------------------- Interface --------------------------- */
+
 int calc_create_reports(const Calc_Args* _Args)
 {
   int res, max_threads;
   size_t calc_runs_count, i;
 
-  if (!_Args->calcs_dir || !_Args->data_dir || !_Args->weather_dir ||
-      _Args->facility_count < 1)
+  if (!_Args->calcs_dir || !_Args->data_dir || _Args->facility_count < 1)
     return ERR_INVALID_ARG;
 
   create_directory_if_not_exists(_Args->calcs_dir);
@@ -634,9 +643,9 @@ int calc_create_reports(const Calc_Args* _Args)
     T_Args[j].facility_config = _Args->facility_configs[i];
     T_Args[j].interval = QUARTERLY;
     
-    T_Args[j+1].calc_args = _Args;
-    T_Args[j+1].facility_config = _Args->facility_configs[i];
-    T_Args[j+1].interval = HOURLY;
+    T_Args[j + 1].calc_args = _Args;
+    T_Args[j + 1].facility_config = _Args->facility_configs[i];
+    T_Args[j + 1].interval = HOURLY;
   }
 
   /* Define and start threadpool tasks */
@@ -651,6 +660,7 @@ int calc_create_reports(const Calc_Args* _Args)
   /* Wait for threads to finish then dispose */
   tp_dispose(TP);
 
+  free(T_Args);
 
   return 0;
 }

@@ -24,7 +24,7 @@ typedef struct
 
 } Facility_Config;
 
-Facility_Config** facility_get_configs(const char* _facility_dir, size_t _facility_count);
+Facility_Config** facility_get_configs(const char* _facility_dir, size_t* _facility_count);
 
 void facility_dispose(Facility_Config** _Configs, size_t _facility_count);
 

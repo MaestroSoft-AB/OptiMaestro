@@ -79,6 +79,10 @@ int optimizer_init(Optimizer* _O)
     return res;
   }
 
+  if (sql_helper_init(&_O->sqlhelper) != SUCCESS) {
+    return ERR_FATAL;
+  }
+
   return SUCCESS;
 }
 
@@ -87,39 +91,29 @@ int optimizer_config_set(Optimizer_Config* _OC)
 
   if (_OC->data_dir)
     free(_OC->data_dir);
-  if (_OC->data_weather_dir)
-    free(_OC->data_weather_dir);
-  if (_OC->data_spots_dir)
-    free(_OC->data_spots_dir);
   if (_OC->data_calcs_dir)
     free(_OC->data_calcs_dir);
 
   const char* keys[] = {
     "sys.max_threads",
     "data.dir",
-    "data.spots.dir",
-    "data.weather.dir",
     "data.calcs.dir",
-    "conf.facility.dir"
+    "facility.conf.dir"
   };
 
   char conf_max_threads[64] = {0};
   char conf_data_dir[64] = {0};
-  char conf_data_spots_dir[64] = {0};
-  char conf_data_weather_dir[64] = {0};
   char conf_data_calcs_dir[64] = {0};
   char conf_facility_dir[64] = {0};
 
   char* values[] = {
     conf_max_threads,
     conf_data_dir,
-    conf_data_spots_dir, 
-    conf_data_weather_dir, 
     conf_data_calcs_dir, 
     conf_facility_dir,
   };
 
-  int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 64, 6);
+  int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 64, 4);
 
   if (res != SUCCESS)
     return res;
@@ -130,11 +124,6 @@ int optimizer_config_set(Optimizer_Config* _OC)
   else
     _OC->max_threads = 1;
 
-  LOG_INFO("max_threads: %i\n", _OC->max_threads);
-
-
-  /* THESE DO NOT WORK, END UP NULL...
-   * ?? */
   size_t path_len;
   if (strcmp(conf_data_dir, "") != 0) {
     path_len = strlen(conf_data_dir);
@@ -145,26 +134,6 @@ int optimizer_config_set(Optimizer_Config* _OC)
     }
     memcpy(_OC->data_dir, conf_data_dir, path_len);
     _OC->data_dir[path_len] = '\0';
-  }
-  if (strcmp(conf_data_spots_dir, "") != 0) {
-    path_len = strlen(conf_data_spots_dir);
-    _OC->data_spots_dir = malloc(path_len + 1);
-    if (!_OC->data_spots_dir) {
-      LOG_ERROR("malloc");
-      return ERR_NO_MEMORY;
-    }
-    memcpy(_OC->data_spots_dir, conf_data_spots_dir, path_len);
-    _OC->data_spots_dir[path_len] = '\0';
-  }
-  if (strcmp(conf_data_weather_dir, "") != 0) {
-    path_len = strlen(conf_data_weather_dir);
-    _OC->data_weather_dir = malloc(path_len + 1);
-    if (!_OC->data_weather_dir) {
-      LOG_ERROR("malloc");
-      return ERR_NO_MEMORY;
-    }
-    memcpy(_OC->data_weather_dir, conf_data_weather_dir, path_len);
-    _OC->data_weather_dir[path_len] = '\0';
   }
   if (strcmp(conf_data_calcs_dir, "") != 0) {
     path_len = strlen(conf_data_calcs_dir);
@@ -178,8 +147,8 @@ int optimizer_config_set(Optimizer_Config* _OC)
   }
   if (strcmp(conf_facility_dir, "") != 0) {
     path_len = strlen(conf_facility_dir);
-    _OC->data_calcs_dir = malloc(path_len + 1);
-    if (!_OC->data_calcs_dir) {
+    _OC->facility_dir = malloc(path_len + 1);
+    if (!_OC->facility_dir) {
       LOG_ERROR("malloc");
       return ERR_NO_MEMORY;
     }
@@ -188,7 +157,7 @@ int optimizer_config_set(Optimizer_Config* _OC)
   }
 
   /* Facility configs */
-  _OC->facility_configs = facility_get_configs(_OC->facility_dir, _OC->facility_count);
+  _OC->facility_configs = facility_get_configs(_OC->facility_dir, &_OC->facility_count);
   if (!_OC->facility_configs || !_OC->facility_configs[0]) {
     LOG_ERROR("Otpimzer failed to get valid facility configs.");
     return ERR_INTERNAL;
@@ -202,26 +171,22 @@ int optimizer_run(Optimizer* _O)
   int i = 0; 
   int res;
 
-  sqlite3* db = NULL;
   char db_path[512];
 
   snprintf(db_path, sizeof(db_path), "%s/cache.db", _O->config.data_dir);
 
   /* Initiate Squeeeel */
-  res = sql_helper_open(&db, db_path);
+  res = sql_helper_open(&_O->sqlhelper, db_path);
   if (res != SUCCESS) {
     LOG_ERROR("sql_helper_open (%i)", res);
     return res;
   }
 
-  res = sql_helper_init_schema(db);
+  res = sql_helper_init_schema(&_O->sqlhelper);
   if (res != SUCCESS) {
     LOG_ERROR("sql_helper_init_schema (%i)", res);
-    sql_helper_close(db);
     return res;
   }
-
-  sql_helper_close(db);
 
   /* Initiate thread pools */
   _O->thread_pool = tp_init(_O->config.max_threads);
@@ -236,8 +201,8 @@ int optimizer_run(Optimizer* _O)
   for (i = 0; i < 4; i++) {
     ECH_Config[i].price_class = i;
     ECH_Config[i].currency = SPOT_SEK; // Only have support for SEK
-    if (_O->config.data_spots_dir != NULL)
-      ECH_Config[i].data_dir = _O->config.data_dir;
+    ECH_Config[i].data_dir = _O->config.data_dir;
+    ECH_Config[i].sqlhelper = &_O->sqlhelper;
   }
 
   /* Start electricity cache handler threads */
@@ -255,17 +220,19 @@ int optimizer_run(Optimizer* _O)
   WCH_Conf* WCH_Confs = calloc(1, sizeof(WCH_Conf) * _O->config.facility_count * 2);
   if (!WCH_Confs) {
     LOG_ERROR("calloc");
+    tp_wait(_O->thread_pool);
+    tp_dispose(_O->thread_pool);
+    _O->thread_pool = NULL;
     return ERR_NO_MEMORY;
   }
-
   for (i = 0; i < (int)_O->config.facility_count; i++) {
     int j = i * 2; // destination index
 
     /* Forecast weather run */
+    WCH_Confs[j].sqlhelper = &_O->sqlhelper;
     WCH_Confs[j].forecast = true;
     WCH_Confs[j].latitude = _O->config.facility_configs[i]->lat;
     WCH_Confs[j].longitude = _O->config.facility_configs[i]->lon;
-    WCH_Confs[j].data_dir = _O->config.data_weather_dir; // TODO: Switch to db path when db
 
     /* Facility might not have solarpanels, set to zero if so 
      * TODO: differentiate weather that has panels and that don't in WCH as well */
@@ -279,10 +246,10 @@ int optimizer_run(Optimizer* _O)
     }
 
     /* Current weather run */
+    WCH_Confs[j + 1].sqlhelper = &_O->sqlhelper;
     WCH_Confs[j + 1].forecast = false;
     WCH_Confs[j + 1].latitude = _O->config.facility_configs[i]->lat;
     WCH_Confs[j + 1].longitude = _O->config.facility_configs[i]->lon;
-    WCH_Confs[j + 1].data_dir = _O->config.data_weather_dir; // TODO: Switch to db path when db
 
     /* Facility might not have solarpanels, set to zero if so 
      * TODO: differentiate weather that has panels and that don't in WCH as well */
@@ -308,14 +275,16 @@ int optimizer_run(Optimizer* _O)
   tp_dispose(_O->thread_pool);
   _O->thread_pool = NULL;
 
+  free(WCH_Confs);
+
   /* Run calculator */
   Calc_Args C_Args = {
-      .calcs_dir        = _O->config.data_calcs_dir,
-      .data_dir         = _O->config.data_dir,
-      .weather_dir      = _O->config.data_weather_dir,
-      .facility_configs = _O->config.facility_configs,
-      .facility_count   = _O->config.facility_count,
-      .max_threads      = _O->config.max_threads,
+    .calcs_dir        = _O->config.data_calcs_dir,
+    .data_dir         = _O->config.data_dir,
+    .facility_configs = _O->config.facility_configs,
+    .facility_count   = _O->config.facility_count,
+    .max_threads      = _O->config.max_threads,
+    .sqlhelper        = &_O->sqlhelper,
   };
 
   if (calc_create_reports(&C_Args) != SUCCESS) {
@@ -323,6 +292,8 @@ int optimizer_run(Optimizer* _O)
     return ERR_FATAL;
   }
 
+  sql_helper_close(&_O->sqlhelper);
+  sql_helper_dispose(&_O->sqlhelper);
   return SUCCESS;
 }
 
@@ -339,10 +310,6 @@ void optimizer_dispose(Optimizer* _O)
     free(_O->config.data_dir);
   if (_O->config.data_calcs_dir)
     free(_O->config.data_calcs_dir);
-  if (_O->config.data_weather_dir)
-    free(_O->config.data_weather_dir);
-  if (_O->config.data_spots_dir)
-    free(_O->config.data_spots_dir);
 
 #ifdef CURL_GLOBAL_DEFAULT
   curl_global_cleanup();

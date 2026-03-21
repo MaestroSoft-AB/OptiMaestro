@@ -24,29 +24,10 @@ static inline Facility_Config* facility_parse_config(const char* _filepath)
     "price_class",
     "panel.tilt",
     "panel.azimuth",
-    "panel.size",
+    "panel.m2_size",
   };
 
-  char* conf_name = {0};
-  char* conf_lat = {0};
-  char* conf_lon = {0};
-  char* conf_currency = {0};
-  char* conf_price_class = {0};
-  char* conf_panel_tilt = {0};
-  char* conf_panel_azimuth = {0};
-  char* conf_panel_size = {0};
-
-  char* values[] = {
-    conf_name,
-    conf_lat,
-    conf_lon,
-    conf_currency,         
-    conf_price_class,
-    conf_panel_tilt,
-    conf_panel_azimuth,
-    conf_panel_size,
-  };
-
+  char* values[KEYS_COUNT];
   int vals_found = config_values_get(_filepath, keys, values, KEYS_COUNT);
 
   /* First five keys are obligatory, MAKE THIS SAFER IF EDITING ABOVE CODE */
@@ -59,6 +40,16 @@ static inline Facility_Config* facility_parse_config(const char* _filepath)
     }
   }
 
+  /* Bind names to entries in values[] */
+  char* conf_name          = values[0];
+  char* conf_lat           = values[1];
+  char* conf_lon           = values[2];
+  // char* conf_currency      = values[3];
+  char* conf_price_class   = values[4];
+  char* conf_panel_tilt    = values[5];
+  char* conf_panel_azimuth = values[6];
+  char* conf_panel_size    = values[7];
+
   /* Get name */
   size_t name_len = strlen(conf_name);
   Conf->name = malloc(name_len + 1);
@@ -70,6 +61,12 @@ static inline Facility_Config* facility_parse_config(const char* _filepath)
   memcpy(Conf->name, conf_name, name_len);
   Conf->name[name_len] = '\0';
 
+  // TODO: maybe handle atof/atoi better to mitigate unexpected results later
+  float lat = atof(conf_lat);
+  float lon = atof(conf_lon);
+  Conf->lat = lat;
+  Conf->lon = lon;
+
   /* You don't get to choose currency >:) */
   Conf->currency = SPOT_SEK;
 
@@ -78,12 +75,6 @@ static inline Facility_Config* facility_parse_config(const char* _filepath)
     Conf->price_class = price_class;
   else
     Conf->price_class = SE1;
-
-  // TODO: maybe handle atof/atoi better to mitigate unexpected results later
-  float lat = atof(conf_lat);
-  float lon = atof(conf_lon);
-  Conf->lat = lat;
-  Conf->lon = lon;
 
   /* If we got solar panel settings, we define it in config struct */
   if (conf_panel_tilt != NULL && conf_panel_azimuth != NULL && conf_panel_size != NULL) {
@@ -110,8 +101,7 @@ static inline Facility_Config* facility_parse_config(const char* _filepath)
   return Conf;
 }
 
-Facility_Config** facility_get_configs(const char* _facility_dir, 
-    size_t _facility_count) 
+Facility_Config** facility_get_configs(const char* _facility_dir, size_t* _facility_count) 
 {
   if (!_facility_dir) 
     return NULL;
@@ -144,7 +134,23 @@ Facility_Config** facility_get_configs(const char* _facility_dir,
       return NULL;
     }
 
-    Facility_Config* Conf = facility_parse_config(conf_files[i]);
+    /* Define full path */
+    char filepath[256];
+    size_t path_len = snprintf(filepath, sizeof(filepath), 
+      "%s/%s", _facility_dir, conf_files[i]);
+    if (path_len < 1) {
+      LOG_ERROR("snprintf");
+      facility_dispose(Conf_Array, i+1);
+
+      /* Dispose of the rest of conf name strings */
+      for (int y = i; y < (int)conf_files_count; y++)
+        free(conf_files);
+
+      return NULL;
+    }
+
+    /* Parse config */
+    Facility_Config* Conf = facility_parse_config(filepath);
     if (!Conf) {
       LOG_ERROR("facility_parse_config");
       facility_dispose(Conf_Array, i+1);
@@ -155,6 +161,8 @@ Facility_Config** facility_get_configs(const char* _facility_dir,
 
       return NULL;
     }
+
+    (*_facility_count)++;
 
     Conf_Array[i] = Conf;
     free(conf_files[i]); // free conf name string
