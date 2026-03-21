@@ -79,6 +79,18 @@ $(addsuffix /install,$(MODULES)): maestro
 	echo "Installing module $$MODULE..."; \
 	$(MAKE) -C $$MODULE install
 
+# Install target daemon using make [module]/daemon-install
+$(addsuffix /daemon-install,$(MODULES)): maestro
+	@MODULE=$(@D); \
+	echo "Installing module daemon $$MODULE..."; \
+	$(MAKE) -C $$MODULE daemon-install
+
+# Clean target daemon using make [module]/daemon-clean
+$(addsuffix /daemon-clean,$(MODULES)): maestro
+	@MODULE=$(@D); \
+	echo "Cleaning module daemon $$MODULE..."; \
+	$(MAKE) -C $$MODULE daemon-clean
+
 # Run target using make [module]/run
 $(addsuffix /run,$(MODULES)): maestro
 	@MODULE=$(@D); \
@@ -102,6 +114,11 @@ $(addsuffix /gdb,$(MODULES)): maestro
 	@MODULE=$(@D); \
 	echo "Debugging module $$MODULE using gdb..."; \
 	$(MAKE) -C $$MODULE gdb
+
+# Print info
+$(addsuffix /print,$(MODULES)): maestro
+	@MODULE=$(@D); \
+	$(MAKE) -C $$MODULE print
 
 # Fuzz
 $(addsuffix /fuzz,$(MODULES)): maestro
