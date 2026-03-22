@@ -29,6 +29,7 @@ CACHE_DIR := data/cache
 # Compilation flags
 CFLAGS := -std=c11 -MMD -MP -Wall -Wextra -Wfatal-errors -g \
 	-Iinclude \
+	-I../common/include \
 	-I$(MAESTRO_DIR)/modules/include \
 	-I$(MAESTRO_DIR)/utils/include
 

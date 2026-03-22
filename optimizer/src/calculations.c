@@ -151,7 +151,7 @@ void calc_daily_averages_threadtask(void* _context)
     return;
   }
 
-  char* filename_json = calc_name_get_daily(C_Args->calcs_dir, F_Ptr->name, "json", epd, F_Ptr->price_class + 1, time(NULL));
+  char* filename_json = calc_name_get_daily(C_Args->calcs_dir, F_Ptr->name, "json", epd, time(NULL));
   if (!filename_json) {
     LOG_ERROR("calc_name_get_daily");
     return;
@@ -166,7 +166,7 @@ void calc_daily_averages_threadtask(void* _context)
   LOG_INFO("%s created!", filename_json);
   free(filename_json);
 
-  char* filename_txt = calc_name_get_daily(C_Args->calcs_dir, F_Ptr->name, "json", epd, F_Ptr->price_class + 1, time(NULL));
+  char* filename_txt = calc_name_get_daily(C_Args->calcs_dir, F_Ptr->name, "txt", epd, time(NULL));
   if (!filename_txt) {
     LOG_ERROR("calc_name_get_daily");
     return;
@@ -201,12 +201,11 @@ static inline int calc_results_create(Calc_Results* _Res,
       || _count < 1 || _count > _S->price_count // count must not be more than available spots
       || _interval > _count                     // update interval not more than count
       || (_W && _W->count != _S->price_count)   // spots and weather must have same count
-      || (_W->values[0].timestamp != _S->prices[0].time_start) // both E+W first index must have same start time
+      || (_W && _W->values[0].timestamp != _S->prices[0].time_start) // both E+W first index must have same start time
       || _avg_thresh < 0.0 || _avg_thresh > 1.0) {
     LOG_ERROR("One or more conditions not met for calculations");
     return ERR_INVALID_ARG;
   }
-
   float solars_avg;
   float solars_gain_avg;
   _Res->cheapness_thresh = _avg_thresh;
@@ -413,13 +412,13 @@ static inline int calc_summary_create(const Calc_Results* _Res,
   strftime(time_now_str, sizeof(time_now_str), "%Y-%m-%d %H:%M:%S", localtime(&now));
 
   /* Summary */
-  fprintf(file, "============================================================\n");
-  fprintf(file, "              ENERGY CALCULATION SUMMARY REPORT              \n");
-  fprintf(file, "============================================================\n");
+  fprintf(file, "=========================================================\n");
+  fprintf(file, "              ENERGY CALCULATION SUMMARY REPORT           \n");
+  fprintf(file, "=========================================================\n");
   fprintf(file, "Generated at: %s\n", time_now_str);
   fprintf(file, "Spot Class:   %d\n", (int)_F->price_class);
   fprintf(file, "Currency:     %d\n", (int)_F->currency);
-  fprintf(file, "------------------------------------------------------------\n");
+  fprintf(file, "---------------------------------------------------------\n");
   fprintf(file, "Average Spot Price: %.2f %s/kW\n", _Res->spot_prices_avg, "SEK");
   fprintf(file, "Cheapness Threshold: %.2f%%\n", _Res->cheapness_thresh * 100);
   if (_Res->solar_gains && _Res->solar_gains_deviation) {
@@ -427,19 +426,23 @@ static inline int calc_summary_create(const Calc_Results* _Res,
       fprintf(file, "Average Solar Gains: %.2f SEK\n", _Res->solar_gains_avg);
   }
   fprintf(file, "Data Points: %u\n", _Res->count);
-  fprintf(file, "============================================================\n\n");
+  fprintf(file, "=========================================================\n\n");
 
   /* Table Header */
-  if (_Res->solar_gains && _Res->solar_gains_deviation) {
-    fprintf(file, "%-25s | %-10s | %-10s | %-10s | %-10s | %-10s\n", "Timestamp", "Spot", "Dev(%)",
-            "Cheapness", "SolarGains", "SolarDev(%)");
-    fprintf(file, "--------------------------------------------------------------------------------"
-                  "------------\n");
+if (_Res->solar_gains && _Res->solar_gains_deviation) {
+    fprintf(file,
+            "%-25s | %-7s | %-7s | %-9s | %-10s | %-11s\n",
+            "Timestamp", "Spot", "Dev(%)", "Cheapness",
+            "SolarGains", "SolarDev(%)");
+    fprintf(file,
+            "------------------------------------------------------------------------------------\n");
   } else {
-    fprintf(file, "%-25s | %-10s | %-10s | %-10s\n", "Timestamp", "Spot", "Dev(%)", "Cheapness");
-    fprintf(file, "---------------------------------------------------------------\n");
+    fprintf(file,
+            "%-25s | %-7s | %-7s | %-9s\n",
+            "Timestamp", "Spot", "Dev(%)", "Cheapness");
+    fprintf(file,
+            "---------------------------------------------------------\n");
   }
-
   /* Table Row data */
   for (unsigned int i = 0; i < _Res->count; i++) {
     const char* ts_str = parse_epoch_to_iso_full_datetime_string(&_Res->timestamps[i], 0);
@@ -460,12 +463,21 @@ static inline int calc_summary_create(const Calc_Results* _Res,
     }
 
     if (_Res->solar_gains && _Res->solar_gains_deviation) {
-      fprintf(file, "%-10.2f | %-10.2f | %-10s | %-10.2f | %-10.2f \n", _Res->spot_prices[i],
-              _Res->spot_prices_deviation[i], cheap_str, _Res->solar_gains[i],
+      fprintf(file,
+              "%-19s | %7.2f | %7.2f | %-9s | %10.2f | %11.2f\n",
+              ts_str,
+              _Res->spot_prices[i],
+              _Res->spot_prices_deviation[i],
+              cheap_str,
+              _Res->solar_gains[i],
               _Res->solar_gains_deviation[i]);
     } else {
-      fprintf(file, "%-20s | %-10.2f | %-10.2f | %-10s\n", ts_str, _Res->spot_prices[i],
-              _Res->spot_prices_deviation[i], cheap_str);
+      fprintf(file,
+              "%-19s | %7.2f | %7.2f | %-9s\n",
+              ts_str,
+              _Res->spot_prices[i],
+              _Res->spot_prices_deviation[i],
+              cheap_str);
     }
     free((void*)ts_str);
   }

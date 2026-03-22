@@ -7,7 +7,7 @@
 #include <time.h>
 
 #define CALCS_DEFAULT_DIRECTORY "/var/lib/maestro/calcs"
-#define CALCS_DAILY_NAME_FORMAT "%s/%s-Daily_%s_SP%i_SE%i.%s"
+#define CALCS_DAILY_NAME_FORMAT "%s/%s-Daily_%s_SP%i.%s"
 
 /* Unified helper for optimizer and server to find the same calc files */
 static inline char* calc_name_get_daily(
@@ -15,7 +15,6 @@ static inline char* calc_name_get_daily(
     const char* _name, // Name of facility
     const char* _ext,  // File extension without leading "."
     int _epd,          // entries per day, ie 96/24
-    int _price_class,  // 1-4
     time_t _date) 
 {
   int name_len = 0;
@@ -26,7 +25,7 @@ static inline char* calc_name_get_daily(
 
   name_len = snprintf(filename_buf, sizeof(filename_buf), 
     CALCS_DAILY_NAME_FORMAT,
-    _dir, _name, date_str, _epd, _price_class, _ext);
+    _dir, _name, date_str, _epd, _ext);
 
   if (name_len < 0 || (size_t)name_len >= sizeof(filename_buf)) {
     fprintf(stderr, "calc_name - Failed to build filename");

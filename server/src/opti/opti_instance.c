@@ -1,4 +1,6 @@
 #include "opti/opti_instance.h"
+#include "data/calc_name.h"
+#include "maestromodules/http_parser.h"
 #include <maestroutils/file_utils.h>
 #include <stdio.h>
 #include <time.h>
@@ -21,7 +23,7 @@ int osi_get_solar_data(Osi_RequestCtx* _ctx);
 int osi_get_temp_1_data(Osi_RequestCtx* _ctx);
 int osi_get_jacuzzi_data(Osi_RequestCtx* _ctx);
 int osi_get_overview(Osi_RequestCtx* _ctx);
-int osi_get_average(Osi_RequestCtx* _ctx);
+int osi_get_average_daily(Osi_RequestCtx* _ctx);
 int osi_get_average_hourly(Osi_RequestCtx* _ctx);
 
 /* REMEMBER TO CHANGE COUNT WHEN ADDING ENDPOINT! */
@@ -48,9 +50,9 @@ const Device_API_Endpoint Endpoints[ENDPOINTS_COUNT] = {{
                                                             osi_get_overview,
                                                         },
                                                         {
-                                                            "/average",
+                                                            "/average-daily",
                                                             HTTP_GET,
-                                                            osi_get_average,
+                                                            osi_get_average_daily,
                                                         },
                                                         {
                                                             "/average-hourly",
@@ -157,38 +159,63 @@ int osi_get_overview(Osi_RequestCtx* _ctx)
   return osi_set_response(_ctx->conn, 200, "application/json", body);
 }
 
-int osi_get_average(Osi_RequestCtx* _ctx)
+int osi_get_average_daily(Osi_RequestCtx* _ctx)
 {
   if (!_ctx || !_ctx->conn || !_ctx->conn->request) {
     return ERR_INVALID_ARG;
   }
+  
+  HTTP_Request* Req = _ctx->conn->request;
 
-  time_t t = time(NULL);
-  struct tm tm = *localtime(&t);
+  const char* facility_name = NULL; 
+  const char* type = NULL;
+  int epd = 96; 
 
-  char today[11]; // YYYY-MM-DD
-  strftime(today, sizeof(today), "%Y-%m-%d", &tm);
+  /* Look for filename vars in request paremeters */
+  linked_list_foreach(Req->params, node) {
+    HTTP_Key_Value* Param = (HTTP_Key_Value*)node->item;
+    if (strcmp(Param->key, "name") == 0) {
+      facility_name = Param->value;
+    }
+    if (strcmp(Param->key, "epd") == 0 || strcmp(Param->key, "sp") == 0) {
+      epd = atoi(Param->value);
+    }
+    if (strcmp(Param->key, "type") == 0) {
+      type = Param->value;
+    }
+  }
 
-  char full_filename[256];
+  if (!facility_name) { // Need name 
+    return osi_set_response(_ctx->conn, 500, "application/json",
+                            "{\"error\":\"Missing parameter for \'name\'\"}");
+  }
+  /* Set defaults if no param */
+  if (!type) {
+    type = "json";
+  }
 
-  int res = snprintf(full_filename, sizeof(full_filename), "%sDaily_%s_SP96_SE3_Solar.json", OPTI_AVERAGE_PATH,
-                     today);
-
-  if (res < 0 || (size_t)res >= sizeof(full_filename)) {
+  char* filename = calc_name_get_daily(CALCS_DEFAULT_DIRECTORY, facility_name, type, epd, time(NULL));
+  if (!filename) {
     printf("Failed to format filename\n");
-    return osi_set_response(_ctx->conn, 503, "application/json",
-                            "{\"error\":\"average.json not available\"}");
+    return osi_set_response(_ctx->conn, 500, "application/json",
+        "{\"error\":\"Failed to format filename\"}");
   }
 
-  printf("Fetching data from: %s\n", full_filename);
+  printf("Fetching data from: %s\n", filename);
 
-  const char* file_content = read_file_to_string((const char*)full_filename);
+  const char* file_content = read_file_to_string(filename);
   if (!file_content) {
-    return osi_set_response(_ctx->conn, 503, "application/json",
-                            "{\"error\":\"average.json not available\"}");
+    char response[256];
+    int len = snprintf(response, sizeof(response), "{\"error\":\"File not found (%s)\"}", filename);
+    response[len] = '\0';
+    free((void*)file_content);
+    free(filename);
+    return osi_set_response(_ctx->conn, 503, "application/json", response);
   }
+  free(filename);
+  
 
-  res = osi_set_response(_ctx->conn, 200, "application/json", file_content);
+  int res = osi_set_response(_ctx->conn, 200, "application/json", file_content);
 
   free((void*)file_content);
 
@@ -234,7 +261,7 @@ int osi_get_average_hourly(Osi_RequestCtx* _ctx)
 }
 
 /*************************************************************************/
-/***************************************************************************************************************/
+/************************************************************************^**************************************/
 int osi_init(void* _context, Opti_Server_Instance* _Instance, HTTP_Server_Connection* _Connection)
 {
   if (!_Instance || !_Connection) {

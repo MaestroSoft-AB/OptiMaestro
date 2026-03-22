@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-static int daemonize(const char* _prog_name) {
+static int daemonize(const char* _prog_name, const char* _pid_file) {
   pid_t pid;
 
   umask(0);
@@ -48,7 +48,7 @@ static int daemonize(const char* _prog_name) {
   dup2(0, 1); dup2(0, 2); close(fd);
 
   /* PID file */
-  FILE *pidfile = fopen("/run/optimizer.pid", "w");
+  FILE *pidfile = fopen(_pid_file, "w");
   if (pidfile) {
     fprintf(pidfile, "%d\n", getpid());
     fclose(pidfile);

@@ -88,6 +88,9 @@ int optimizer_init(Optimizer* _O)
 
 int optimizer_config_set(Optimizer_Config* _OC)
 {
+  facility_dispose(_OC->facility_configs, _OC->facility_count);
+  _OC->facility_configs = NULL;
+  _OC->facility_count = 0;
 
   if (_OC->data_dir)
     free(_OC->data_dir);

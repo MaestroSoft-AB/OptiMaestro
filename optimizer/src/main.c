@@ -48,7 +48,7 @@ struct timespec req = {0, 100}; // nanosleep delay, .1 ms
 int main(int _argc, const char** _argv)
 {
 #ifdef DAEMONIZE
-  if (daemonize(_argv[0]) != SUCCESS) {
+  if (daemonize(_argv[0], "/run/maestro/optimizer.pid") != SUCCESS) {
     syslog(LOG_ERR, "%s - daemonization failed", _argv[0]);
     exit(1);
   }
