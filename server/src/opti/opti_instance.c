@@ -172,21 +172,23 @@ int osi_get_average_daily(Osi_RequestCtx* _ctx)
   int epd = 96; 
 
   /* Look for filename vars in request paremeters */
-  linked_list_foreach(Req->params, node) {
-    HTTP_Key_Value* Param = (HTTP_Key_Value*)node->item;
-    if (strcmp(Param->key, "name") == 0) {
-      facility_name = Param->value;
-    }
-    if (strcmp(Param->key, "epd") == 0 || strcmp(Param->key, "sp") == 0) {
-      epd = atoi(Param->value);
-    }
-    if (strcmp(Param->key, "type") == 0) {
-      type = Param->value;
+  if (Req->params != NULL) {
+    linked_list_foreach(Req->params, node) {
+      HTTP_Key_Value* Param = (HTTP_Key_Value*)node->item;
+      if (strcmp(Param->key, "name") == 0) {
+        facility_name = Param->value;
+      }
+      if (strcmp(Param->key, "epd") == 0 || strcmp(Param->key, "sp") == 0) {
+        epd = atoi(Param->value);
+      }
+      if (strcmp(Param->key, "type") == 0) {
+        type = Param->value;
+      }
     }
   }
 
   if (!facility_name) { // Need name 
-    return osi_set_response(_ctx->conn, 500, "application/json",
+    return osi_set_response(_ctx->conn, 503, "application/json",
                             "{\"error\":\"Missing parameter for \'name\'\"}");
   }
   /* Set defaults if no param */
