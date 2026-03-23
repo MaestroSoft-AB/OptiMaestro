@@ -603,6 +603,9 @@ int osi_post_config(Osi_RequestCtx* _ctx) {
                             "{\"error\":\"optimizer.conf saved but reload signal failed\"}");
   }
 
+  uds_client_send(RELOAD);
+  uds_client_send(RUN);
+
   return osi_set_response(_ctx->conn, 200, "application/json", "{\"status\":\"config saved\"}");
 }
 
