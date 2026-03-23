@@ -16,20 +16,21 @@ git submodule update --init --recursive
 
 ### Building
 
-Compile the optimizer by running:
+Before building, make sure to install using
+
 ```bash
-make
+make install
+```
+
+Then compile the optimizer by running:
+```bash
+make JSON=1
 ```
 
 This will:
 - Build dependencies (including MaestroCore)
 - Compile source files from `src/` and `common/` directories
 - Link into a final binary at `~/.local/bin/optimizer`
-
-To include JSON parsing capabilities:
-```bash
-make JSON=1
-```
 
 ---
 
@@ -105,22 +106,13 @@ Run memory checks using:
 make valgrind
 ```
 
-For runtime sanitizers (AddressSanitizer/UndefinedBehaviorSanitizer):
-```bash
-make run-asan
-```
-
 ---
 
 ## Configuration
 
-The configuration file (`/etc/maestro/optimizer.conf`) defines system behavior and external API details. Typical parameters include:
-- Geographic location or coordinates  
-- API keys (if credentials are needed)  
-- Solar panel output configuration  
-- Update intervals and thresholds  
+The configuration file (`/etc/maestro/optimizer.conf`) defines system behavior and external API details.
 
-Adjust these values to fine-tune optimization for your energy setup.
+Adjust these values to fine-tune the optimizer or set custom data directories.
 
 ---
 
@@ -130,14 +122,6 @@ Adjust these values to fine-tune optimization for your energy setup.
 git clone https://github.com/MaestroSoft-AB/OptiMaestroOptimizer.git
 cd OptiMaestroOptimizer
 git submodule update --init --recursive
-make JSON=1
 sudo make install
-make run
+make run JSON=1
 ```
-
----
-
-## License
-
-This project is distributed under the MIT License (or your applicable license).  
-See the `LICENSE` file for more information.
