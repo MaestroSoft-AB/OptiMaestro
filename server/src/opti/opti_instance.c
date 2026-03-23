@@ -1,6 +1,7 @@
 #include "opti/opti_instance.h"
 #include "data/calc_name.h"
 #include "maestromodules/http_parser.h"
+#include <dirent.h>
 #include <maestroutils/file_utils.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,7 +10,21 @@
 
 #define OPTI_AVERAGE_PATH "/var/lib/maestro/calcs/"
 #define OPTI_CONFIG_PATH "/etc/maestro/optimizer.conf"
-#define OPTI_CONFIG_EDITABLE_COUNT 7
+#define OPTI_FACILITY_CONF_DIR_FALLBACK "/etc/maestro/facility"
+#define OPTI_CONFIG_EDITABLE_COUNT 8
+
+static const char* osi_blank_facility_config =
+    "name=\n"
+    "currency=SEK\n"
+    "price_class=3\n"
+    "latitude=0\n"
+    "longitude=0\n"
+    "panel.tilt=0\n"
+    "panel.azimuth=0\n"
+    "panel.m2_size=0\n";
+
+static int osi_append_text(char** buffer, size_t* used, size_t* capacity, const char* text,
+                           size_t text_len);
 
 //-----------------Internal Functions-----------------
 //
@@ -31,9 +46,10 @@ int osi_get_average_daily(Osi_RequestCtx* _ctx);
 int osi_get_average_hourly(Osi_RequestCtx* _ctx);
 int osi_get_config(Osi_RequestCtx* _ctx);
 int osi_post_config(Osi_RequestCtx* _ctx);
+int osi_get_facilities(Osi_RequestCtx* _ctx);
 
 /* REMEMBER TO CHANGE COUNT WHEN ADDING ENDPOINT! */
-#define ENDPOINTS_COUNT 8
+#define ENDPOINTS_COUNT 9
 
 const Device_API_Endpoint Endpoints[ENDPOINTS_COUNT] = {{
                                                             "/solar-cell",
@@ -74,6 +90,11 @@ const Device_API_Endpoint Endpoints[ENDPOINTS_COUNT] = {{
                                                             "/config",
                                                             HTTP_POST,
                                                             osi_post_config,
+                                                        },
+                                                        {
+                                                            "/facilities",
+                                                            HTTP_GET,
+                                                            osi_get_facilities,
                                                         }}
 
 ;
@@ -147,6 +168,276 @@ static const char* osi_get_request_body(Osi_RequestCtx* _ctx, int* _body_len)
   return (const char*)_ctx->conn->tcp_client.data.addr;
 }
 
+static const char* osi_get_query_param(HTTP_Request* req, const char* key)
+{
+  if (!req || !key || !req->params) {
+    return NULL;
+  }
+
+  linked_list_foreach(req->params, node) {
+    HTTP_Key_Value* param = (HTTP_Key_Value*)node->item;
+    if (param && param->key && param->value && strcmp(param->key, key) == 0) {
+      return param->value;
+    }
+  }
+
+  return NULL;
+}
+
+static int osi_copy_config_value(const char* text, const char* key, char* value_out, size_t value_out_size)
+{
+  if (!text || !key || !value_out || value_out_size == 0) {
+    return ERR_INVALID_ARG;
+  }
+
+  value_out[0] = '\0';
+  size_t key_len = strlen(key);
+  const char* cursor = text;
+
+  while (*cursor != '\0') {
+    const char* line_start = cursor;
+    const char* line_end = strchr(cursor, '\n');
+    if (!line_end) {
+      line_end = cursor + strlen(cursor);
+      cursor = line_end;
+    } else {
+      cursor = line_end + 1;
+    }
+
+    size_t line_len = (size_t)(line_end - line_start);
+    if (line_len > 0 && line_start[line_len - 1] == '\r') {
+      --line_len;
+    }
+
+    if (line_len <= key_len + 1) {
+      continue;
+    }
+
+    if (strncmp(line_start, key, key_len) != 0 || line_start[key_len] != '=') {
+      continue;
+    }
+
+    size_t value_len = line_len - key_len - 1;
+    if (value_len >= value_out_size) {
+      return ERR_INVALID_ARG;
+    }
+
+    memcpy(value_out, line_start + key_len + 1, value_len);
+    value_out[value_len] = '\0';
+    return SUCCESS;
+  }
+
+  return ERR_NOT_FOUND;
+}
+
+static int osi_get_facility_config_dir(char* dir_out, size_t dir_out_size)
+{
+  if (!dir_out || dir_out_size == 0) {
+    return ERR_INVALID_ARG;
+  }
+
+  const char* optimizer_config = read_file_to_string(OPTI_CONFIG_PATH);
+  if (!optimizer_config) {
+    snprintf(dir_out, dir_out_size, "%s", OPTI_FACILITY_CONF_DIR_FALLBACK);
+    return SUCCESS;
+  }
+
+  int result = osi_copy_config_value(optimizer_config, "facility.conf.dir", dir_out, dir_out_size);
+  free((void*)optimizer_config);
+
+  if (result != SUCCESS || dir_out[0] == '\0') {
+    snprintf(dir_out, dir_out_size, "%s", OPTI_FACILITY_CONF_DIR_FALLBACK);
+  }
+
+  return SUCCESS;
+}
+
+static void osi_build_facility_filename(const char* facility_name, char* filename_out, size_t filename_out_size)
+{
+  if (!facility_name || !filename_out || filename_out_size == 0) {
+    return;
+  }
+
+  size_t write_index = 0;
+  for (size_t read_index = 0; facility_name[read_index] != '\0' && write_index + 6 < filename_out_size;
+       ++read_index) {
+    unsigned char ch = (unsigned char)facility_name[read_index];
+    if (ch == '/' || ch == '\\' || ch < 32 || ch == ':') {
+      filename_out[write_index++] = '_';
+    } else {
+      filename_out[write_index++] = (char)ch;
+    }
+  }
+
+  if (write_index == 0) {
+    snprintf(filename_out, filename_out_size, "facility.conf");
+    return;
+  }
+
+  snprintf(filename_out + write_index, filename_out_size - write_index, ".conf");
+}
+
+static int osi_find_facility_config_path(const char* facility_name, int create_if_missing,
+                                         char* path_out, size_t path_out_size)
+{
+  if (!facility_name || !path_out || path_out_size == 0) {
+    return ERR_INVALID_ARG;
+  }
+
+  char facility_dir[256] = {0};
+  int result = osi_get_facility_config_dir(facility_dir, sizeof(facility_dir));
+  if (result != SUCCESS) {
+    return result;
+  }
+
+  DIR* directory = opendir(facility_dir);
+  if (directory) {
+    struct dirent* entry = NULL;
+    while ((entry = readdir(directory)) != NULL) {
+      if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+        continue;
+      }
+
+      size_t name_len = strlen(entry->d_name);
+      if (name_len < 5 || strcmp(entry->d_name + name_len - 5, ".conf") != 0) {
+        continue;
+      }
+
+      char filepath[512] = {0};
+      snprintf(filepath, sizeof(filepath), "%s/%s", facility_dir, entry->d_name);
+
+      const char* file_content = read_file_to_string(filepath);
+      if (!file_content) {
+        continue;
+      }
+
+      char existing_name[128] = {0};
+      int copy_result = osi_copy_config_value(file_content, "name", existing_name, sizeof(existing_name));
+      free((void*)file_content);
+
+      if (copy_result == SUCCESS && strcmp(existing_name, facility_name) == 0) {
+        closedir(directory);
+        snprintf(path_out, path_out_size, "%s", filepath);
+        return SUCCESS;
+      }
+    }
+
+    closedir(directory);
+  }
+
+  if (!create_if_missing) {
+    return ERR_NOT_FOUND;
+  }
+
+  char filename[256] = {0};
+  osi_build_facility_filename(facility_name, filename, sizeof(filename));
+  snprintf(path_out, path_out_size, "%s/%s", facility_dir, filename);
+  return SUCCESS;
+}
+
+static int osi_collect_facility_names(char** body_out)
+{
+  if (!body_out) {
+    return ERR_INVALID_ARG;
+  }
+
+  *body_out = NULL;
+  char facility_dir[256] = {0};
+  int dir_result = osi_get_facility_config_dir(facility_dir, sizeof(facility_dir));
+  if (dir_result != SUCCESS) {
+    return dir_result;
+  }
+
+  DIR* directory = opendir(facility_dir);
+  if (!directory) {
+    return ERR_NOT_FOUND;
+  }
+
+  char* body = NULL;
+  size_t used = 0;
+  size_t capacity = 0;
+  struct dirent* entry = NULL;
+
+  while ((entry = readdir(directory)) != NULL) {
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0 ||
+        strcmp(entry->d_name, "example.conf") == 0) {
+      continue;
+    }
+
+    size_t name_len = strlen(entry->d_name);
+    if (name_len < 5 || strcmp(entry->d_name + name_len - 5, ".conf") != 0) {
+      continue;
+    }
+
+    char filepath[512] = {0};
+    snprintf(filepath, sizeof(filepath), "%s/%s", facility_dir, entry->d_name);
+
+    const char* file_content = read_file_to_string(filepath);
+    if (!file_content) {
+      continue;
+    }
+
+    char facility_name[128] = {0};
+    int copy_result = osi_copy_config_value(file_content, "name", facility_name, sizeof(facility_name));
+    free((void*)file_content);
+
+    if (copy_result != SUCCESS || facility_name[0] == '\0') {
+      continue;
+    }
+
+    int append_result = osi_append_text(&body, &used, &capacity, facility_name, strlen(facility_name));
+    if (append_result != SUCCESS) {
+      free(body);
+      closedir(directory);
+      return append_result;
+    }
+
+    append_result = osi_append_text(&body, &used, &capacity, "\n", 1);
+    if (append_result != SUCCESS) {
+      free(body);
+      closedir(directory);
+      return append_result;
+    }
+  }
+
+  closedir(directory);
+
+  if (!body) {
+    body = (char*)calloc(1, 1);
+    if (!body) {
+      return ERR_NO_MEMORY;
+    }
+  }
+
+  *body_out = body;
+  return SUCCESS;
+}
+
+static int osi_load_template_config(char** template_out)
+{
+  if (!template_out) {
+    return ERR_INVALID_ARG;
+  }
+
+  *template_out = NULL;
+  char facility_dir[256] = {0};
+  int dir_result = osi_get_facility_config_dir(facility_dir, sizeof(facility_dir));
+  if (dir_result != SUCCESS) {
+    return dir_result;
+  }
+
+  char template_path[512] = {0};
+  snprintf(template_path, sizeof(template_path), "%s/example.conf", facility_dir);
+
+  const char* file_content = read_file_to_string(template_path);
+  if (!file_content) {
+    return ERR_NOT_FOUND;
+  }
+
+  *template_out = (char*)file_content;
+  return SUCCESS;
+}
+
 typedef struct
 {
   const char* key;
@@ -156,10 +447,10 @@ typedef struct
 } Config_Update;
 
 static Config_Update osi_config_updates[OPTI_CONFIG_EDITABLE_COUNT] = {
-    {"data.spots.currency", "", 0, 0}, {"data.spots.price_class", "", 0, 0},
-    {"facility.latitude", "", 0, 0},   {"facility.longitude", "", 0, 0},
-    {"facility.panel.tilt", "", 0, 0}, {"facility.panel.azimuth", "", 0, 0},
-    {"facility.panel.m2_size", "", 0, 0},
+    {"name", "", 0, 0},           {"currency", "", 0, 0},
+    {"price_class", "", 0, 0},    {"latitude", "", 0, 0},
+    {"longitude", "", 0, 0},      {"panel.tilt", "", 0, 0},
+    {"panel.azimuth", "", 0, 0},  {"panel.m2_size", "", 0, 0},
 };
 
 static void osi_reset_config_updates(void)
@@ -530,10 +821,24 @@ int osi_get_config(Osi_RequestCtx* _ctx)
     return ERR_INVALID_ARG;
   }
 
-  const char* file_content = read_file_to_string(OPTI_CONFIG_PATH);
+  HTTP_Request* req = _ctx->conn->request;
+  const char* facility_name = osi_get_query_param(req, "name");
+  if (!facility_name || facility_name[0] == '\0') {
+    return osi_set_response(_ctx->conn, 400, "application/json",
+                            "{\"error\":\"Missing parameter for 'name'\"}");
+  }
+
+  char facility_path[512] = {0};
+  int path_result = osi_find_facility_config_path(facility_name, 0, facility_path, sizeof(facility_path));
+  if (path_result != SUCCESS) {
+    return osi_set_response(_ctx->conn, 404, "application/json",
+                            "{\"error\":\"facility config not found\"}");
+  }
+
+  const char* file_content = read_file_to_string(facility_path);
   if (!file_content) {
     return osi_set_response(_ctx->conn, 503, "application/json",
-                            "{\"error\":\"optimizer.conf not available\"}");
+                            "{\"error\":\"facility config not available\"}");
   }
 
   int res = osi_set_response(_ctx->conn, 200, "text/plain", file_content);
@@ -543,10 +848,35 @@ int osi_get_config(Osi_RequestCtx* _ctx)
   return res;
 }
 
+int osi_get_facilities(Osi_RequestCtx* _ctx)
+{
+  if (!_ctx || !_ctx->conn || !_ctx->conn->request) {
+    return ERR_INVALID_ARG;
+  }
+
+  char* body = NULL;
+  int result = osi_collect_facility_names(&body);
+  if (result != SUCCESS) {
+    return osi_set_response(_ctx->conn, 503, "application/json",
+                            "{\"error\":\"failed to list facilities\"}");
+  }
+
+  int res = osi_set_response(_ctx->conn, 200, "text/plain", body);
+  free(body);
+  return res;
+}
+
 int osi_post_config(Osi_RequestCtx* _ctx)
 {
   if (!_ctx || !_ctx->conn || !_ctx->conn->request) {
     return ERR_INVALID_ARG;
+  }
+
+  HTTP_Request* req = _ctx->conn->request;
+  const char* facility_name = osi_get_query_param(req, "name");
+  if (!facility_name || facility_name[0] == '\0') {
+    return osi_set_response(_ctx->conn, 400, "application/json",
+                            "{\"error\":\"Missing parameter for 'name'\"}");
   }
 
   int body_len = 0;
@@ -566,26 +896,43 @@ int osi_post_config(Osi_RequestCtx* _ctx)
                             "{\"error\":\"failed to parse config update\"}");
   }
 
-  const char* existing_config = read_file_to_string(OPTI_CONFIG_PATH);
-  if (!existing_config) {
+  char facility_path[512] = {0};
+  int path_result = osi_find_facility_config_path(facility_name, 1, facility_path, sizeof(facility_path));
+  if (path_result != SUCCESS) {
     return osi_set_response(_ctx->conn, 503, "application/json",
-                            "{\"error\":\"optimizer.conf not available\"}");
+                            "{\"error\":\"failed to resolve facility config path\"}");
+  }
+
+  const char* existing_config = read_file_to_string(facility_path);
+  char* template_config = NULL;
+  int used_blank_config = 0;
+  if (!existing_config) {
+    if (osi_load_template_config(&template_config) == SUCCESS && template_config) {
+      existing_config = template_config;
+    } else {
+      existing_config = osi_blank_facility_config;
+      used_blank_config = 1;
+    }
   }
 
   char* merged_config = NULL;
   int merge_result = osi_merge_config_updates(existing_config, &merged_config);
-  free((void*)existing_config);
+  if (template_config) {
+    free(template_config);
+  } else if (existing_config != NULL && !used_blank_config) {
+    free((void*)existing_config);
+  }
   if (merge_result != SUCCESS || !merged_config) {
     free(merged_config);
     return osi_set_response(_ctx->conn, 503, "application/json",
-                            "{\"error\":\"failed to merge config update\"}");
+                            "{\"error\":\"failed to merge facility config update\"}");
   }
 
-  FILE* config_file = fopen(OPTI_CONFIG_PATH, "w");
+  FILE* config_file = fopen(facility_path, "w");
   if (!config_file) {
     free(merged_config);
     return osi_set_response(_ctx->conn, 503, "application/json",
-                            "{\"error\":\"failed to open optimizer.conf\"}");
+                            "{\"error\":\"failed to open facility config\"}");
   }
 
   size_t merged_len = strlen(merged_config);
@@ -595,16 +942,16 @@ int osi_post_config(Osi_RequestCtx* _ctx)
 
   if (written != merged_len || close_result != 0) {
     return osi_set_response(_ctx->conn, 503, "application/json",
-                            "{\"error\":\"failed to write optimizer.conf\"}");
+                            "{\"error\":\"failed to write facility config\"}");
   }
 
   int signal_result = system("pkill -USR2 optimizer");
   if (signal_result != 0) {
     return osi_set_response(_ctx->conn, 503, "application/json",
-                            "{\"error\":\"optimizer.conf saved but reload signal failed\"}");
+                            "{\"error\":\"facility config saved but reload signal failed\"}");
   }
 
-  return osi_set_response(_ctx->conn, 200, "application/json", "{\"status\":\"config saved\"}");
+  return osi_set_response(_ctx->conn, 200, "application/json", "{\"status\":\"facility config saved\"}");
 }
 
 /*************************************************************************/
