@@ -10,7 +10,11 @@ else
 endif
 
 BUILD_DIR := build
-BIN_DIR		:= ../bin
+
+# Binary name
+USER := $(shell whoami)
+BIN_DIR	 := /home/$(USER)/.local/bin
+BIN := $(BIN_DIR)/optiserver
 
 # ----- Local server code -----
 SRC_DIR := src
@@ -19,9 +23,6 @@ SRC := $(shell find -L $(SRC_DIR) -type f -name '*.c')
 # ----- MaestroCore (submodule) -----
 MAESTRO_DIR ?= ../external/MaestroCore
 MAESTRO_LIB := $(MAESTRO_DIR)/build/lib/libmaestrocore.a
-
-# Enable MaestroCore JSON (optional): make JSON=1
-JSON ?= 0
 
 # Temp dirs
 CACHE_DIR := data/cache
@@ -33,9 +34,7 @@ CFLAGS := -std=c11 -MMD -MP -Wall -Wextra -Wfatal-errors -g \
 	-I$(MAESTRO_DIR)/modules/include \
 	-I$(MAESTRO_DIR)/utils/include
 
-ifeq ($(JSON),1)
-	CFLAGS += -DMAESTROUTILS_WITH_CJSON
-endif
+CFLAGS += -DMAESTROUTILS_WITH_CJSON
 
 ASAN_FLAGS := -O1 -g3 -fno-omit-frame-pointer -fsanitize=address,undefined
 
@@ -47,9 +46,6 @@ endif
 
 # Linked libraries
 LIBS := -lcurl
-
-# Binary name
-BIN := $(BIN_DIR)/server
 
 # Map .c → .o (ONLY server sources)
 SRC_OBJ := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/$(SRC_DIR)/%.o,$(SRC))

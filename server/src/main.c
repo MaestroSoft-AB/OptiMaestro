@@ -34,7 +34,7 @@ void handle_sigint(int sig)
 
 int main(void)
 {
-  trigger_optimizer();
+  // trigger_optimizer();
   scheduler_init();
   opti_s_init(&Server);
 

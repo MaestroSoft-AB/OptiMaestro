@@ -44,9 +44,6 @@ MBEDTLS_LIBS := \
   $(MAESTRO_DIR)/build/anonymaestro/library/libmbedx509.a \
   $(MAESTRO_DIR)/build/anonymaestro/library/libmbedcrypto.a
 
-# Enable MaestroCore JSON (optional): make JSON=1
-JSON ?= 1
-
 # Temp dirs
 CACHE_DIR := /var/cache/maestro/optimizer 
 
@@ -60,9 +57,7 @@ CFLAGS := -std=c99 -MMD -MP -Wall -Wextra -Wfatal-errors -g -pg \
 	-I../common/include \
 	$(CORE_FLAGS)
 
-ifeq ($(JSON),1)
-	CFLAGS += -DMAESTROUTILS_WITH_CJSON -I$(CJSON_DIR)
-endif
+CFLAGS += -DMAESTROUTILS_WITH_CJSON -I$(CJSON_DIR)
 
 ASAN_FLAGS := -O1 -g3 -fno-omit-frame-pointer -fsanitize=address,undefined
 
