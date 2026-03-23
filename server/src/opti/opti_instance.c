@@ -33,8 +33,9 @@ int osi_get_average_hourly(Osi_RequestCtx* _ctx);
 int osi_get_config(Osi_RequestCtx* _ctx);
 int osi_post_config(Osi_RequestCtx* _ctx);
 int osi_recalc(Osi_RequestCtx* _ctx);
+int osi_kill(Osi_RequestCtx* _ctx);
 /* REMEMBER TO CHANGE COUNT WHEN ADDING ENDPOINT! */
-#define ENDPOINTS_COUNT 9
+#define ENDPOINTS_COUNT 10
 
 const Device_API_Endpoint Endpoints[ENDPOINTS_COUNT] = {{
                                                             "/solar-cell",
@@ -78,11 +79,17 @@ const Device_API_Endpoint Endpoints[ENDPOINTS_COUNT] = {{
                                                         },
                                                         {
                                                             "/recalc",
-                                                            HTTP_POST,
+                                                            HTTP_GET,
                                                             osi_recalc,
-                                                        }}
+                                                        },
+                                                        {
+                                                            "/kill",
+                                                            HTTP_GET,
+                                                            osi_kill,
+                                                        }
 
-;
+
+};
 
 //--------------------------------------------------------------------------//
 
@@ -599,6 +606,49 @@ int osi_post_config(Osi_RequestCtx* _ctx) {
   return osi_set_response(_ctx->conn, 200, "application/json", "{\"status\":\"config saved\"}");
 }
 
+int osi_recalc(Osi_RequestCtx* _ctx) {
+  if (!_ctx) {
+    return ERR_INVALID_ARG;
+  }
+  int         res;
+  const char* body = NULL;
+
+  res = uds_client_send(RELOAD);
+  if (res != SUCCESS) {
+    const char* body = "Failed to reload config";
+    return osi_set_response(_ctx->conn, 500, "application/json", body);
+  }
+
+  res = uds_client_send(RUN);
+
+  if (res != SUCCESS) {
+    const char* body = "Failed to run calculations";
+    return osi_set_response(_ctx->conn, 500, "application/json", body);
+  }
+
+  body = "Reloaded config and ran calculations";
+  return osi_set_response(_ctx->conn, 200, "application/json", body);
+}
+
+int osi_kill(Osi_RequestCtx* _ctx)
+{
+
+  if (!_ctx) {
+    return ERR_INVALID_ARG;
+  }
+  int         res;
+  const char* body = NULL;
+
+  res = uds_client_send(KILL);
+  if (res != SUCCESS) {
+    const char* body = "Failed to reload config";
+    return osi_set_response(_ctx->conn, 500, "application/json", body);
+  }
+
+  body = "Committed first degree murder on optimizer";
+  return osi_set_response(_ctx->conn, 200, "application/json", body);
+}
+
 /*************************************************************************/
 /************************************************************************^**************************************/
 int osi_init(void* _context, Opti_Server_Instance* _Instance, HTTP_Server_Connection* _Connection) {
@@ -684,30 +734,6 @@ int osi_on_api_finish(void* _context) {
   Instance->state = OPTI_INSTANCE_RESPONSE_BUILDING;
 
   return SUCCESS;
-}
-
-int osi_recalc(Osi_RequestCtx* _ctx) {
-  if (!_ctx) {
-    return ERR_INVALID_ARG;
-  }
-  int         res;
-  const char* body = NULL;
-
-  res = uds_client_send(RELOAD);
-  if (res != SUCCESS) {
-    const char* body = "Failed to reload config";
-    return osi_set_response(_ctx->conn, 500, "application/json", body);
-  }
-
-  res = uds_client_send(RUN);
-
-  if (res != SUCCESS) {
-    const char* body = "Failed to run calculations";
-    return osi_set_response(_ctx->conn, 500, "application/json", body);
-  }
-
-  body = "Reloaded config and ran calculations";
-  return osi_set_response(_ctx->conn, 200, "application/json", body);
 }
 
 

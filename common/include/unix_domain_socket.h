@@ -3,7 +3,7 @@
 #define SOCKET_PATH "/run/maestro/optimizer.sock"
 #define RUN "run"
 #define RELOAD "reload"
-
+#define KILL "kill"
 
 int uds_client_send(const char* _command);
 

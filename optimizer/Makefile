@@ -121,7 +121,9 @@ install:
 	@chmod +x $(INSTALL_SCRIPT)
 	@sudo sh $(INSTALL_SCRIPT)
 	@sudo mkdir -p $(RUN_DIRS)
+	@sudo chmod 755 $(RUN_DIRS)
 	@sudo touch $(RUN_FILES)
+	@sudo chmod 644 $(RUN_FILES)
 	@sudo chown -R $(UID):$(GID) $(RUN_DIRS) $(RUN_FILES) 
 	@echo "System dirs and files created and chowned."
 	@echo "Dirs: $(RUN_DIRS)" 

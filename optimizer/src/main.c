@@ -49,8 +49,8 @@ static const int sigc = sizeof(Signals) / sizeof(Signals[0]);
 
 /* ------------------------------------------------------------------ */
 
-/* Non‑blocking read from socket, 1‑shot per iteration. */
-static int uds_server_step(int server_fd, Optimizer* opti) {
+/* Read from socket, 1‑shot per iteration. */
+static int uds_server_step(int server_fd, Optimizer* _Opti) {
   struct sockaddr_un client_addr;
   socklen_t          addr_len = sizeof(client_addr);
   char               buf[8];  // RUN or RELOAD plus NULL
@@ -75,11 +75,18 @@ static int uds_server_step(int server_fd, Optimizer* opti) {
   buf[n] = '\0';
 
   if (strcmp(buf, RUN) == 0) {
-    LOG_INFO("%s - Triggered by socket: RUN", "optimizer");
-    optimizer_run(opti);
+    LOG_INFO("%s - Triggered by socket: RUN", "_Optimizer");
+    optimizer_run(_Opti);
   } else if (strcmp(buf, RELOAD) == 0) {
-    LOG_INFO("%s - Triggered by socket: RELOAD", "optimizer");
-    optimizer_config_set(&opti->config);
+    LOG_INFO("%s - Triggered by socket: RELOAD", "_Optimizer");
+    optimizer_config_set(&_Opti->config);
+  } else if (strcmp(buf, KILL) == 0) {
+    LOG_INFO("%s - Triggered by socket: KILL", "_Optimizer");
+    // printf("%s - Shutdown...\n", _argv[0]);
+    optimizer_dispose(_Opti);
+    global_tls_ca_dispose();
+    log_close();
+    exit(SUCCESS);
   } else {
     LOG_INFO("unknown socket command: '%s'", buf);
   }
@@ -165,6 +172,7 @@ int main(int _argc, const char** _argv)
       sig_new_data = 0;
       next_run += 900;
     }
+
     /* Poll socket (non‑blocking) */
     if (trigger_fd >= 0) {
       if (uds_server_step(trigger_fd, &Opti) != SUCCESS) {
