@@ -5,23 +5,22 @@
 /* -----------------Internal Functions----------------- */
 
 void opti_s_taskwork(void* _context, uint64_t _montime);
-int opti_s_on_http_connection(void* _context, HTTP_Server_Connection* _Connection);
-int opti_s_on_instance_finish(void* _context, void* _instance);
+int  opti_s_on_http_connection(void* _context, HTTP_Server_Connection* _Connection);
+int  opti_s_on_instance_finish(void* _context, void* _instance);
 
 OptiServerState opti_server_connection_handover(Opti_Server* _Server);
 /* ---------------------------------------------------- */
 
-int opti_s_init(Opti_Server* _Server)
-{
+int opti_s_init(Opti_Server* _Server) {
 
   if (!_Server) {
     return ERR_INVALID_ARG;
   }
 
   /*_Server->http_server = NULL;*/
-  _Server->instances = NULL;
-  _Server->task = NULL;
-  _Server->state = OPTI_SERVER_INIT;
+  _Server->instances       = NULL;
+  _Server->task            = NULL;
+  _Server->state           = OPTI_SERVER_INIT;
   _Server->http_connection = NULL;
 
   int result = http_server_init(&_Server->http_server, opti_s_on_http_connection, _Server);
@@ -41,7 +40,7 @@ int opti_s_init(Opti_Server* _Server)
   }
 
   _Server->instances = Instances;
-  _Server->task = scheduler_create_task(_Server, opti_s_taskwork);
+  _Server->task      = scheduler_create_task(_Server, opti_s_taskwork);
   if (!_Server->task) {
     linked_list_destroy(&_Server->instances);
     http_server_dispose(&_Server->http_server);
@@ -56,8 +55,7 @@ int opti_s_init(Opti_Server* _Server)
   return SUCCESS;
 }
 
-int opti_s_init_ptr(Opti_Server** _Server_Ptr)
-{
+int opti_s_init_ptr(Opti_Server** _Server_Ptr) {
 
   if (!_Server_Ptr) {
     return ERR_INVALID_ARG;
@@ -83,21 +81,19 @@ int opti_s_init_ptr(Opti_Server** _Server_Ptr)
 
 /* ---------------------------------------------------- */
 
-int opti_s_on_http_connection(void* _context, HTTP_Server_Connection* _Connection)
-{
+int opti_s_on_http_connection(void* _context, HTTP_Server_Connection* _Connection) {
   if (!_context || !_Connection) {
     return ERR_INVALID_ARG;
   }
 
-  Opti_Server* Server = (Opti_Server*)_context;
+  Opti_Server* Server     = (Opti_Server*)_context;
   Server->http_connection = _Connection;
 
   Server->state = OPTI_SERVER_CONNECTING;
   return SUCCESS;
 }
 
-OptiServerState opti_server_connection_handover(Opti_Server* _Server)
-{
+OptiServerState opti_server_connection_handover(Opti_Server* _Server) {
   if (!_Server) {
     return OPTI_SERVER_ERROR;
   }
@@ -119,13 +115,12 @@ OptiServerState opti_server_connection_handover(Opti_Server* _Server)
   return OPTI_SERVER_CONNECTED;
 }
 
-int opti_s_on_instance_finish(void* _context, void* _instance)
-{
+int opti_s_on_instance_finish(void* _context, void* _instance) {
   if (!_context || !_instance) {
     return ERR_INVALID_ARG;
   }
 
-  Opti_Server* Server = (Opti_Server*)_context;
+  Opti_Server*          Server   = (Opti_Server*)_context;
   Opti_Server_Instance* Instance = (Opti_Server_Instance*)_instance;
   if (Instance->item != NULL)
     linked_list_item_remove(Server->instances, Instance->item);
@@ -137,20 +132,18 @@ int opti_s_on_instance_finish(void* _context, void* _instance)
   return SUCCESS;
 }
 
-int opti_s_on_http_error(void* _context)
-{
+int opti_s_on_http_error(void* _context) {
   if (!_context) {
     return ERR_INVALID_ARG;
   }
 
   Opti_Server* server = (Opti_Server*)_context;
-  server->state = OPTI_SERVER_DISPOSING;
+  server->state       = OPTI_SERVER_DISPOSING;
 
   return SUCCESS;
 }
 
-void opti_s_taskwork(void* _context, uint64_t _MonTime)
-{
+void opti_s_taskwork(void* _context, uint64_t _MonTime) {
   (void)_MonTime;
   if (!_context)
     return;
@@ -194,8 +187,7 @@ void opti_s_taskwork(void* _context, uint64_t _MonTime)
   server->state = next_state;
 }
 
-void opti_s_dispose(Opti_Server* _Server)
-{
+void opti_s_dispose(Opti_Server* _Server) {
   if (!_Server) {
     return;
   }

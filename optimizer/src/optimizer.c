@@ -1,20 +1,21 @@
 #include "optimizer.h"
+#include "calculations.h"
+#include "data/facility.h"
 #include "data/electricity_structs.h"
 #include "electricity_cache_handler.h"
 #include "maestromodules/thread_pool.h"
+#include "maestroutils/config_handler.h"
 #include "maestroutils/error.h"
+#include "maestroutils/file_logging.h"
 #include "maestroutils/file_utils.h"
-
-#include "maestromodules/curl.h"
-
+#include "sqlite_helpers.h"
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
-#include <pthread.h>
 
 /* --------------------- Internal declarations --------------------- */
 
-#define DATA_DIR "/var/lib/maestro" // TODO: Move to conf
-
+// #define DATA_DIR "/var/lib/maestro" // TODO: Move to conf
 
 void optimizer_run_ech(void* _ech_conf)
 {
@@ -22,15 +23,15 @@ void optimizer_run_ech(void* _ech_conf)
   ECH_Conf* Conf = (ECH_Conf*)_ech_conf;
   ECH E;
 
-  res = ech_init(&E);
+  res = ech_init(&E, Conf);
   if (res != 0) {
-    perror("ech_init"); // TODO: Logger
+    LOG_ERROR("ech_init");
     return;
   }
 
-  res = ech_update_cache(&E, Conf);
+  res = ech_update_cache(&E);
   if (res != 0) {
-    perror("ech_update_cache"); // TODO: Logger
+    LOG_ERROR("ech_update_cache");
     ech_dispose(&E);
     return;
   }
@@ -44,15 +45,15 @@ void optimizer_run_wch(void* _wch_conf)
   WCH_Conf* Conf = (WCH_Conf*)_wch_conf;
   WCH W;
 
-  res = wch_init(&W);
+  res = wch_init(&W, Conf);
   if (res != 0) {
-    perror("wch_init"); // TODO: Logger
+    LOG_ERROR("wch_init");
     return;
   }
 
-  res = wch_update_cache(&W, Conf);
+  res = wch_update_cache(&W);
   if (res != 0) {
-    perror("wch_update_cache"); // TODO: Logger
+    LOG_ERROR("wch_update_cache");
     wch_dispose(&W);
     return;
   }
@@ -62,7 +63,7 @@ void optimizer_run_wch(void* _wch_conf)
 
 /* ---------------------------------------------------------------- */
 
-int optimizer_init(Optimizer* _OC)
+int optimizer_init(Optimizer* _O)
 {
   int res;
 
@@ -70,127 +71,255 @@ int optimizer_init(Optimizer* _OC)
   curl_global_init(CURL_GLOBAL_DEFAULT);
 #endif
 
-  memset(_OC, 0, sizeof(Optimizer));
-  create_directory_if_not_exists(DATA_DIR);
+  memset(_O, 0, sizeof(Optimizer));
 
-  res = optimizer_config_set(_OC, OPTI_CONFIG_PATH);
+  res = optimizer_config_set(&_O->config);
   if (res != 0) {
-    perror("optimizer_config_set"); // TODO: Logger
+    LOG_ERROR("optimizer_config_set");
     return res;
   }
 
-  return SUCCESS;
-}
-
-int optimizer_config_set(Optimizer* _OC, const char* _conf_path)
-{
-  // TODO: read from conf file, add conf parse util
-
-  _OC->config.max_threads = 6;
-  _OC->config.data_path = "../data";
-  _OC->config.currency = SPOT_SEK;
+  if (sql_helper_init(&_O->sqlhelper) != SUCCESS) {
+    return ERR_FATAL;
+  }
 
   return SUCCESS;
 }
 
-int optimizer_run(Optimizer* _OC)
+int optimizer_config_set(Optimizer_Config* _OC)
 {
-  int i;
+  facility_dispose(_OC->facility_configs, _OC->facility_count);
+  _OC->facility_configs = NULL;
+  _OC->facility_count = 0;
+
+  if (_OC->data_dir)
+    free(_OC->data_dir);
+  if (_OC->data_calcs_dir)
+    free(_OC->data_calcs_dir);
+  if (_OC->facility_dir)
+    free(_OC->facility_dir);
+
+  const char* keys[] = {
+    "sys.max_threads",
+    "data.dir",
+    "data.calcs.dir",
+    "facility.conf.dir"
+  };
+
+  char conf_max_threads[64] = {0};
+  char conf_data_dir[64] = {0};
+  char conf_data_calcs_dir[64] = {0};
+  char conf_facility_dir[64] = {0};
+
+  char* values[] = {
+    conf_max_threads,
+    conf_data_dir,
+    conf_data_calcs_dir, 
+    conf_facility_dir,
+  };
+
+  int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 64, 4);
+
+  if (res != SUCCESS)
+    return res;
+
+  int max_threads = atoi(conf_max_threads);
+  if (max_threads > 0)
+    _OC->max_threads = max_threads;
+  else
+    _OC->max_threads = 1;
+
+  size_t path_len;
+  if (strcmp(conf_data_dir, "") != 0) {
+    path_len = strlen(conf_data_dir);
+    _OC->data_dir = malloc(path_len + 1);
+    if (!_OC->data_dir) {
+      LOG_ERROR("malloc");
+      return ERR_NO_MEMORY;
+    }
+    memcpy(_OC->data_dir, conf_data_dir, path_len);
+    _OC->data_dir[path_len] = '\0';
+  }
+  if (strcmp(conf_data_calcs_dir, "") != 0) {
+    path_len = strlen(conf_data_calcs_dir);
+    _OC->data_calcs_dir = malloc(path_len + 1);
+    if (!_OC->data_calcs_dir) {
+      LOG_ERROR("malloc");
+      return ERR_NO_MEMORY;
+    }
+    memcpy(_OC->data_calcs_dir, conf_data_calcs_dir, path_len);
+    _OC->data_calcs_dir[path_len] = '\0';
+  }
+  if (strcmp(conf_facility_dir, "") != 0) {
+    path_len = strlen(conf_facility_dir);
+    _OC->facility_dir = malloc(path_len + 1);
+    if (!_OC->facility_dir) {
+      LOG_ERROR("malloc");
+      return ERR_NO_MEMORY;
+    }
+    memcpy(_OC->facility_dir, conf_facility_dir, path_len);
+    _OC->facility_dir[path_len] = '\0';
+  }
+
+  /* Facility configs */
+  _OC->facility_configs = facility_get_configs(_OC->facility_dir, &_OC->facility_count);
+  if (!_OC->facility_configs || !_OC->facility_configs[0]) {
+    LOG_ERROR("Otpimzer failed to get valid facility configs.");
+    return ERR_INTERNAL;
+  }
+
+  return SUCCESS;
+}
+
+int optimizer_run(Optimizer* _O)
+{
+  int i = 0; 
   int res;
 
+  char db_path[512];
+
+  snprintf(db_path, sizeof(db_path), "%s/cache.db", _O->config.data_dir);
+
+  /* Initiate Squeeeel */
+  res = sql_helper_open(&_O->sqlhelper, db_path);
+  if (res != SUCCESS) {
+    LOG_ERROR("sql_helper_open (%i)", res);
+    return res;
+  }
+
+  res = sql_helper_init_schema(&_O->sqlhelper);
+  if (res != SUCCESS) {
+    LOG_ERROR("sql_helper_init_schema (%i)", res);
+    return res;
+  }
+
+  /* Initiate thread pools */
+  _O->thread_pool = tp_init(_O->config.max_threads);
+  if (!_O->thread_pool) {
+    LOG_ERROR("tp_init");
+    return ERR_FATAL;
+  }
+
   /* Define cache runs with config structs */
+  /* Electricity spots are indefferent to facility configs */
   ECH_Conf ECH_Config[4] = {0}; // One per each price_class
-  for (i = 0; i < 4; i++) { 
-    ECH_Config[i].price_class = i; 
-    ECH_Config[i].currency = _OC->config.currency; 
-  }
-  WCH_Conf WCH_Config[2] = {0}; // One per current+forecast
-  WCH_Config[0].forecast = true; WCH_Config[1].forecast = false;
-  WCH_Config[0].latitude = 59.33263; WCH_Config[0].longitude = 18.06453;
-  WCH_Config[1].latitude = 59.33263; WCH_Config[1].longitude = 18.06453;
-
-  /* SINGLE THREADED - one by one */
-  if (_OC->config.max_threads < 3) {
-    ECH E;
-    res = ech_init(&E);
-    if (res != 0) {
-      perror("wch_init"); // TODO: Logger
-      return res;
-    }
-    WCH W;
-    res = wch_init(&W);
-    if (res != 0) {
-      perror("wch_init"); // TODO: Logger
-      ech_dispose(&E);
-      return res;
-    }
-    
-    for (i = 0; i < 4; i++) { 
-      res = ech_update_cache(&E, &ECH_Config[i]);
-      if (res != 0) {
-        perror("ech_update_cache"); // TODO: Logger
-        ech_dispose(&E);
-        return res;
-      }
-      ech_dispose(&E);
-    }
-    ech_dispose(&E);
-
-    for (i = 0; i < 2; i++) { 
-      res = wch_update_cache(&W, &WCH_Config[i]);
-      if (res != 0) {
-        perror("wch_update_cache"); // TODO: Logger
-        wch_dispose(&W);
-        return res;
-      }
-      wch_dispose(&W);
-    }
-    wch_dispose(&W);
-
-  }
-  /* MULTI THREADED - using thread_pool.h󰩧 */
-  else {
-    _OC->thread_pool = tp_init(_OC->config.max_threads);
-    
-    if (!_OC->thread_pool) {
-      perror("tp_init"); // TODO: Logger
-      return ERR_FATAL;
-    }
-
-    for (i = 0; i < 4; i++) { 
-      TP_Task Task = { optimizer_run_ech, &ECH_Config[i], NULL, NULL };
-      res = tp_task_add(_OC->thread_pool, &Task);
-      if (res != 0) 
-        perror("tp_task_add"); // TODO: Logger
-    }
-
-    for (i = 0; i < 2; i++) { 
-      TP_Task Task = { optimizer_run_wch, &WCH_Config[i], NULL, NULL };
-      res = tp_task_add(_OC->thread_pool, &Task);
-      if (res != 0) 
-        perror("tp_task_add"); // TODO: Logger
-    }
-
-    tp_wait(_OC->thread_pool);
-    tp_dispose(_OC->thread_pool);
-    _OC->thread_pool = NULL;
+  for (i = 0; i < 4; i++) {
+    ECH_Config[i].price_class = i;
+    ECH_Config[i].currency = SPOT_SEK; // Only have support for SEK
+    ECH_Config[i].data_dir = _O->config.data_dir;
+    ECH_Config[i].sqlhelper = &_O->sqlhelper;
   }
 
-  /* run calculator */
+  /* Start electricity cache handler threads */
+  for (i = 0; i < 4; i++) {
+    TP_Task Task = {optimizer_run_ech, &ECH_Config[i], NULL, NULL};
+    res = tp_task_add(_O->thread_pool, &Task);
+    if (res != 0)
+      LOG_ERROR("tp_task_add");
+  }
 
+  /* Weather gets two runs per facility: forecast and current */
+  /* TODO: Find a way to not run weather less times, meteo gets a lot of requests 
+   * - maybe check if last saved weather time already is same or more than last electricity time
+   * no need to run if we don't have enough electricity data anyway */
+  WCH_Conf* WCH_Confs = calloc(1, sizeof(WCH_Conf) * _O->config.facility_count * 2);
+  if (!WCH_Confs) {
+    LOG_ERROR("calloc");
+    tp_wait(_O->thread_pool);
+    tp_dispose(_O->thread_pool);
+    _O->thread_pool = NULL;
+    return ERR_NO_MEMORY;
+  }
+  for (i = 0; i < (int)_O->config.facility_count; i++) {
+    int j = i * 2; // destination index
+
+    /* Forecast weather run */
+    WCH_Confs[j].sqlhelper = &_O->sqlhelper;
+    WCH_Confs[j].forecast = true;
+    WCH_Confs[j].latitude = _O->config.facility_configs[i]->lat;
+    WCH_Confs[j].longitude = _O->config.facility_configs[i]->lon;
+
+    /* Facility might not have solarpanels, set to zero if so 
+     * TODO: differentiate weather that has panels and that don't in WCH as well */
+    if (_O->config.facility_configs[i]->panel != NULL) {
+      WCH_Confs[j].panel_azimuth = _O->config.facility_configs[i]->panel->azimuth;
+      WCH_Confs[j].panel_tilt = _O->config.facility_configs[i]->panel->tilt;
+    }
+    else {
+      WCH_Confs[j].panel_azimuth = 0;
+      WCH_Confs[j].panel_tilt = 0;
+    }
+
+    /* Current weather run */
+    WCH_Confs[j + 1].sqlhelper = &_O->sqlhelper;
+    WCH_Confs[j + 1].forecast = false;
+    WCH_Confs[j + 1].latitude = _O->config.facility_configs[i]->lat;
+    WCH_Confs[j + 1].longitude = _O->config.facility_configs[i]->lon;
+
+    /* Facility might not have solarpanels, set to zero if so 
+     * TODO: differentiate weather that has panels and that don't in WCH as well */
+    if (_O->config.facility_configs[i]->panel != NULL) {
+      WCH_Confs[j + 1].panel_azimuth = _O->config.facility_configs[i]->panel->azimuth;
+      WCH_Confs[j + 1].panel_tilt = _O->config.facility_configs[i]->panel->tilt;
+    }
+    else {
+      WCH_Confs[j + 1].panel_azimuth = 0;
+      WCH_Confs[j + 1].panel_tilt = 0;
+    }
+  }
+
+  /* Start weather cache handler threads */
+  for (i = 0; i < (int)(_O->config.facility_count * 2); i++) {
+    TP_Task Task = {optimizer_run_wch, &WCH_Confs[i], NULL, NULL};
+    res = tp_task_add(_O->thread_pool, &Task);
+    if (res != 0)
+      LOG_ERROR("tp_task_add");
+  }
+
+  tp_wait(_O->thread_pool);
+  tp_dispose(_O->thread_pool);
+  _O->thread_pool = NULL;
+
+  free(WCH_Confs);
+
+  /* Run calculator */
+  Calc_Args C_Args = {
+    .calcs_dir        = _O->config.data_calcs_dir,
+    .data_dir         = _O->config.data_dir,
+    .facility_configs = _O->config.facility_configs,
+    .facility_count   = _O->config.facility_count,
+    .max_threads      = _O->config.max_threads,
+    .sqlhelper        = &_O->sqlhelper,
+  };
+
+  if (calc_create_reports(&C_Args) != SUCCESS) {
+    LOG_ERROR("calc_create_reports");
+    return ERR_FATAL;
+  }
+
+  sql_helper_dispose(&_O->sqlhelper);
   return SUCCESS;
 }
 
-void optimizer_dispose(Optimizer* _OC)
+void optimizer_dispose(Optimizer* _O)
 {
-  if (_OC->thread_pool != NULL) {
-    tp_wait(_OC->thread_pool);
-    tp_dispose(_OC->thread_pool);
+  if (_O->thread_pool != NULL) {
+    tp_wait(_O->thread_pool);
+    tp_dispose(_O->thread_pool);
   }
 
+  facility_dispose(_O->config.facility_configs, _O->config.facility_count);
+
+  if (_O->config.data_dir)
+    free(_O->config.data_dir);
+  if (_O->config.data_calcs_dir)
+    free(_O->config.data_calcs_dir);
+  if (_O->config.facility_dir)
+    free(_O->config.facility_dir);
+
 #ifdef CURL_GLOBAL_DEFAULT
-  curl_global_cleanup(); 
+  curl_global_cleanup();
 #endif
 
-  _OC = NULL;
+  _O = NULL;
 }

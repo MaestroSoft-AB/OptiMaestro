@@ -1,0 +1,28 @@
+[Unit]
+Description=Maestro Optimizer Daemon
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/usr/local/bin/optimizer-daemon
+ExecReload=/bin/kill -USR2 $MAINPID
+ExecStop=/bin/kill -TERM $MAINPID
+Restart=always
+RestartSec=5
+PIDFile=/run/maestro/optimizer.pid
+
+User=maestro
+Group=maestro
+#RuntimeDirectory=maestro
+RuntimeDirectoryMode=0750
+
+# systemd will create /run/optimizer with this owner
+RuntimeDirectory=optimizer
+RuntimeDirectoryMode=0750
+
+# Log file is created beforehand and owned by maestro
+StandardOutput=append:/var/log/maestro.log
+StandardError=append:/var/log/maestro.log
+
+[Install]
+WantedBy=multi-user.target

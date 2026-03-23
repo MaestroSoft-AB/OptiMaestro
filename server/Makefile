@@ -10,18 +10,21 @@ else
 endif
 
 BUILD_DIR := build
-BIN_DIR		:= ../bin
+
+# Binary name
+USER := $(shell whoami)
+BIN_DIR	 := /home/$(USER)/.local/bin
+BIN := $(BIN_DIR)/optiserver
 
 # ----- Local server code -----
 SRC_DIR := src
-SRC := $(shell find -L $(SRC_DIR) -type f -name '*.c')
+SERVER_SRC := $(shell find -L $(SRC_DIR) -type f -name '*.c')
+COMMON_SRC := $(shell find -L ../common/src -type f -name '*.c')
+SRC := $(SERVER_SRC) $(COMMON_SRC)
 
 # ----- MaestroCore (submodule) -----
 MAESTRO_DIR ?= ../external/MaestroCore
 MAESTRO_LIB := $(MAESTRO_DIR)/build/lib/libmaestrocore.a
-
-# Enable MaestroCore JSON (optional): make JSON=1
-JSON ?= 0
 
 # Temp dirs
 CACHE_DIR := data/cache
@@ -29,12 +32,11 @@ CACHE_DIR := data/cache
 # Compilation flags
 CFLAGS := -std=c11 -MMD -MP -Wall -Wextra -Wfatal-errors -g \
 	-Iinclude \
+	-I../common/include \
 	-I$(MAESTRO_DIR)/modules/include \
 	-I$(MAESTRO_DIR)/utils/include
 
-ifeq ($(JSON),1)
-	CFLAGS += -DMAESTROUTILS_WITH_CJSON
-endif
+CFLAGS += -DMAESTROUTILS_WITH_CJSON
 
 ASAN_FLAGS := -O1 -g3 -fno-omit-frame-pointer -fsanitize=address,undefined
 
@@ -47,12 +49,10 @@ endif
 # Linked libraries
 LIBS := -lcurl
 
-# Binary name
-BIN := $(BIN_DIR)/server
-
-# Map .c → .o (ONLY server sources)
-SRC_OBJ := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/$(SRC_DIR)/%.o,$(SRC))
-OBJ := $(SRC_OBJ)
+# Map .c → .o
+SERVER_OBJ := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/$(SRC_DIR)/%.o,$(SERVER_SRC))
+COMMON_OBJ := $(patsubst ../common/src/%.c,$(BUILD_DIR)/common/src/%.o,$(COMMON_SRC))
+OBJ := $(SERVER_OBJ) $(COMMON_OBJ)
 
 # Dependency files (.d)
 DEP := $(OBJ:.o=.d)
@@ -76,14 +76,28 @@ asan: clean
 	@echo "Building ASan binary..."
 	@$(MAKE) JSON=$(JSON) CC=$(CC) CFLAGS="$(CFLAGS) $(ASAN_FLAGS)" LDFLAGS="$(LDFLAGS) $(ASAN_FLAGS)" all
 
+profile: clean
+	@echo "Building profiling binary..."
+	@$(MAKE) \
+		JSON=$(JSON) \
+		CC=$(CC) \
+		CFLAGS="$(CFLAGS) -pg -O0 -g" \
+		LDFLAGS="-Wl,--gc-sections -pg" \
+		all
+
 $(BUILD_DIR)/$(SRC_DIR)/%.o: $(SRC_DIR)/%.c
 	@echo "Compiling $<..."
 	@mkdir -p $(dir $@)
 	@$(CC) $(CFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/common/src/%.o: ../common/src/%.c
+	@echo "Compiling $<..."
+	@mkdir -p $(dir $@)
+	@$(CC) $(CFLAGS) -c $< -o $@
+
 run: $(BIN)
-	@echo "Running $<..."
-	@./$(BIN)
+	@echo "Running $(BIN)..."
+	@$(BIN)
 
 clean:
 	@echo "Cleaning build files..."
@@ -97,11 +111,11 @@ full-clean:
 
 valgrind: $(BIN)
 	@echo "Debugging $< using valgrind..."
-	@valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes ./$(BIN)
+	@valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes $(BIN)
 
 gdb: $(BIN)
 	@echo "Debugging $< using gdb..."
-	@gdb ./$(BIN)
+	@gdb $(BIN)
 
 print:
 	@echo "Source files: $(SRC)"
@@ -111,5 +125,4 @@ print:
 
 -include $(DEP)
 
-.PHONY: all run clean print gdb valgrind asan
-
+.PHONY: all run clean print gdb valgrind asan profile gprof

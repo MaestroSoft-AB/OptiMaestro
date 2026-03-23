@@ -39,6 +39,7 @@ typedef struct
 {
   TCP_Server tcp_server;
   Scheduler_Task* task;
+  char port[16];
   void* context;
   void* retry_args;
   http_server_on_connection on_connection;

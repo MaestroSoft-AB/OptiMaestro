@@ -31,13 +31,15 @@ endif
 
 .PHONY: all clean deps maestro maestro-clean \
 	$(MODULES) \
+	$(addsuffix /install,$(MODULES)) \
 	$(addsuffix /run,$(MODULES)) \
 	$(addsuffix /clean,$(MODULES)) \
 	$(addsuffix /valgrind,$(MODULES)) \
 	$(addsuffix /gdb,$(MODULES)) \
 	$(addsuffix /fuzz,$(MODULES)) \
 	$(addsuffix /fuzz-asan,$(MODULES)) \
-	$(addsuffix /run-asan,$(MODULES))
+	$(addsuffix /run-asan,$(MODULES)) \
+	$(addsuffix /profile,$(MODULES))
 
 #############################
 # Recipes
@@ -48,7 +50,9 @@ deps:
 	@git submodule update --init --recursive
 
 # Build MaestroCore first (respects JSON=1)
-maestro: deps
+maestro: $(MAESTRO_DIR)/build/lib/libmaestrocore.a
+
+$(MAESTRO_DIR)/build/lib/libmaestrocore.a: deps
 	@echo "Building MaestroCore (JSON=$(JSON))..."
 	@$(MAKE) -C $(MAESTRO_DIR) JSON=$(JSON)
 
@@ -66,9 +70,27 @@ clean: maestro-clean
 	@echo "All modules cleaned."
 
 # Build each module (depends on MaestroCore)
-$(MODULES): maestro
+$(MODULES): $(MAESTRO_DIR)/build/lib/libmaestrocore.a
 	@echo "Building module $@..."
 	$(MAKE) -C $@ all
+
+# Install target using make [module]/install
+$(addsuffix /install,$(MODULES)): maestro
+	@MODULE=$(@D); \
+	echo "Installing module $$MODULE..."; \
+	$(MAKE) -C $$MODULE install
+
+# Install target daemon using make [module]/daemon-install
+$(addsuffix /daemon-install,$(MODULES)): maestro
+	@MODULE=$(@D); \
+	echo "Installing module daemon $$MODULE..."; \
+	$(MAKE) -C $$MODULE daemon-install
+
+# Clean target daemon using make [module]/daemon-clean
+$(addsuffix /daemon-clean,$(MODULES)): maestro
+	@MODULE=$(@D); \
+	echo "Cleaning module daemon $$MODULE..."; \
+	$(MAKE) -C $$MODULE daemon-clean
 
 # Run target using make [module]/run
 $(addsuffix /run,$(MODULES)): maestro
@@ -94,6 +116,11 @@ $(addsuffix /gdb,$(MODULES)): maestro
 	echo "Debugging module $$MODULE using gdb..."; \
 	$(MAKE) -C $$MODULE gdb
 
+# Print info
+$(addsuffix /print,$(MODULES)): maestro
+	@MODULE=$(@D); \
+	$(MAKE) -C $$MODULE print
+
 # Fuzz
 $(addsuffix /fuzz,$(MODULES)): maestro
 	@MODULE=$(@D); \
@@ -110,3 +137,13 @@ $(addsuffix /run-asan,$(MODULES)): maestro
 	echo "Debugging module $$MODULE using asan..."; \
 	$(MAKE) -C $$MODULE run-asan
 
+# Optimizer daemon
+$(addsuffix /daemon,$(MODULES)): maestro
+	@MODULE=$(@D); \
+	echo "Running $$MODULE as daemon..."; \
+	$(MAKE) -C $$MODULE daemon
+
+$(addsuffix /profile,$(MODULES)): maestro
+	@MODULE=$(@D); \
+	echo "Building profiling target for $$MODULE..."; \
+	$(MAKE) -C $$MODULE profile

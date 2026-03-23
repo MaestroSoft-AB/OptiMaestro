@@ -2,13 +2,15 @@
 #include "opti/opti_server.h"
 #include <maestromodules/scheduler.h>
 #include <maestroutils/signal_handler.h>
+#include "unix_domain_socket.h"
+//-----------------Temporary function to trigger optimizer fetch-----------------
+#define OPTI_PIDFILE "/run/maestro/optimizer.pid"
 
 volatile sig_atomic_t stop = 0;
-Opti_Server Server;
+Opti_Server           Server;
 
 /* Graceful exit */
-void handle_sigint(int sig)
-{
+void handle_sigint(int sig) {
   (void)sig;
   printf("\r\nShutting down server gracefully...\r\n");
   opti_s_dispose(&Server);
@@ -22,9 +24,10 @@ void handle_sigint(int sig)
 
 int main(void)
 {
-
   scheduler_init();
   opti_s_init(&Server);
+  uds_client_send(RELOAD);
+  uds_client_send(RUN);
 
 #ifdef CURL_GLOBAL_DEFAULT
   curl_global_init(
