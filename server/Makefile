@@ -80,7 +80,7 @@ $(BUILD_DIR)/$(SRC_DIR)/%.o: $(SRC_DIR)/%.c
 
 run: $(BIN)
 	@echo "Running $<..."
-	@./$(BIN)
+	@$(BIN)
 
 clean:
 	@echo "Cleaning build files..."
