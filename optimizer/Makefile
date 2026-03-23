@@ -50,7 +50,7 @@ CACHE_DIR := /var/cache/maestro/optimizer
 # Compilation flags
 CFLAGS := -std=c99 -MMD -MP -Wall -Wextra -Wfatal-errors -g \
 	-Iinclude \
-	-Ilib/include \
+	-I../lib/include \
 	-I$(MAESTRO_DIR)/modules/include \
 	-I$(MAESTRO_DIR)/utils/include \
 	-I$(MAESTRO_DIR)/external/anonymaestro/include \
