@@ -38,7 +38,8 @@ endif
 	$(addsuffix /gdb,$(MODULES)) \
 	$(addsuffix /fuzz,$(MODULES)) \
 	$(addsuffix /fuzz-asan,$(MODULES)) \
-	$(addsuffix /run-asan,$(MODULES))
+	$(addsuffix /run-asan,$(MODULES)) \
+	$(addsuffix /profile,$(MODULES))
 
 #############################
 # Recipes
@@ -141,3 +142,8 @@ $(addsuffix /daemon,$(MODULES)): maestro
 	@MODULE=$(@D); \
 	echo "Running $$MODULE as daemon..."; \
 	$(MAKE) -C $$MODULE daemon
+
+$(addsuffix /profile,$(MODULES)): maestro
+	@MODULE=$(@D); \
+	echo "Building profiling target for $$MODULE..."; \
+	$(MAKE) -C $$MODULE profile

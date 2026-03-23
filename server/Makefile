@@ -73,14 +73,25 @@ asan: clean
 	@echo "Building ASan binary..."
 	@$(MAKE) JSON=$(JSON) CC=$(CC) CFLAGS="$(CFLAGS) $(ASAN_FLAGS)" LDFLAGS="$(LDFLAGS) $(ASAN_FLAGS)" all
 
+profile: clean
+	@echo "Building profiling binary..."
+	@$(MAKE) \
+		JSON=$(JSON) \
+		CC=$(CC) \
+		CFLAGS="$(CFLAGS) -pg -O0 -g" \
+		LDFLAGS="-Wl,--gc-sections -pg" \
+		all
+
+
 $(BUILD_DIR)/$(SRC_DIR)/%.o: $(SRC_DIR)/%.c
 	@echo "Compiling $<..."
 	@mkdir -p $(dir $@)
 	@$(CC) $(CFLAGS) -c $< -o $@
 
+
 run: $(BIN)
-	@echo "Running $<..."
-	@./$(BIN)
+	@echo "Running $(BIN)..."
+	@$(BIN)
 
 clean:
 	@echo "Cleaning build files..."
@@ -94,11 +105,11 @@ full-clean:
 
 valgrind: $(BIN)
 	@echo "Debugging $< using valgrind..."
-	@valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes ./$(BIN)
+	@valgrind -s --leak-check=full --show-leak-kinds=all --track-origins=yes $(BIN)
 
 gdb: $(BIN)
 	@echo "Debugging $< using gdb..."
-	@gdb ./$(BIN)
+	@gdb $(BIN)
 
 print:
 	@echo "Source files: $(SRC)"
@@ -108,5 +119,5 @@ print:
 
 -include $(DEP)
 
-.PHONY: all run clean print gdb valgrind asan
+.PHONY: all run clean print gdb valgrind asan profile gprof
 

@@ -48,7 +48,7 @@ MBEDTLS_LIBS := \
 CACHE_DIR := /var/cache/maestro/optimizer 
 
 # Compilation flags
-CFLAGS := -std=c99 -MMD -MP -Wall -Wextra -Wfatal-errors -g -pg \
+CFLAGS := -std=c99 -MMD -MP -Wall -Wextra -Wfatal-errors -g \
 	-Iinclude \
 	-Ilib/include \
 	-I$(MAESTRO_DIR)/modules/include \
@@ -63,7 +63,8 @@ ASAN_FLAGS := -O1 -g3 -fno-omit-frame-pointer -fsanitize=address,undefined
 
 # Linker flags (auto-detect platform)
 LDFLAGS := -flto -Wl,--gc-sections
-
+PROFILE_CFLAGS := -pg -O0 -g
+PROFILE_LDFLAGS := -pg
 # Linked libraries
 LIBS := -lcurl
 
@@ -154,6 +155,14 @@ run-asan: asan
 
 asan:
 	@$(MAKE) CC=$(CC) CFLAGS="$(CFLAGS) $(ASAN_FLAGS)" LDFLAGS="$(LDFLAGS) $(ASAN_FLAGS)" all
+
+profile: clean
+	@echo "Building profiling binary..."
+	@$(MAKE) \
+		CFLAGS="$(CFLAGS) $(PROFILE_CFLAGS)" \
+		LDFLAGS="-Wl,--gc-sections $(PROFILE_LDFLAGS)" \
+		MAESTRO_PROFILE=1 \
+		all
 
 print:
 	@echo "Source files: $(SRC)"
