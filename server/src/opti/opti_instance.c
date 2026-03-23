@@ -10,7 +10,7 @@
 
 #define OPTI_AVERAGE_PATH "/var/lib/maestro/calcs/"
 #define OPTI_CONFIG_PATH "/etc/maestro/optimizer.conf"
-#define OPTI_CONFIG_EDITABLE_COUNT 7
+#define OPTI_CONFIG_EDITABLE_COUNT 8
 
 //-----------------Internal Functions-----------------
 //
@@ -167,10 +167,10 @@ typedef struct
 } Config_Update;
 
 static Config_Update osi_config_updates[OPTI_CONFIG_EDITABLE_COUNT] = {
-    {"data.spots.currency", "", 0, 0},    {"data.spots.price_class", "", 0, 0},
-    {"facility.latitude", "", 0, 0},      {"facility.longitude", "", 0, 0},
-    {"facility.panel.tilt", "", 0, 0},    {"facility.panel.azimuth", "", 0, 0},
-    {"facility.panel.m2_size", "", 0, 0},
+    {"currency", "", 0, 0},      {"price_class", "", 0, 0},
+    {"latitude", "", 0, 0},      {"longitude", "", 0, 0},
+    {"panel.tilt", "", 0, 0},    {"panel.azimuth", "", 0, 0},
+    {"panel.m2_size", "", 0, 0}, {"name", "", 0, 0},
 };
 
 static void osi_reset_config_updates(void) {
@@ -220,8 +220,9 @@ static int osi_append_text(char** buffer, size_t* used, size_t* capacity, const 
   return SUCCESS;
 }
 
-static int osi_parse_config_updates(const char* body, int body_len) {
+static int osi_parse_config_updates(const char* body, int body_len, char* filename) {
   if (!body || body_len <= 0) {
+    printf("!body || body_len <= 0\n");
     return ERR_INVALID_ARG;
   }
 
@@ -258,16 +259,30 @@ static int osi_parse_config_updates(const char* body, int body_len) {
 
     Config_Update* update = osi_find_config_update(line, key_len);
     if (!update) {
+      printf("line: %s\n", line);
+      printf("!update\n");
       return ERR_INVALID_ARG;
     }
 
     if (value_len >= sizeof(update->value)) {
+      printf("value_len >= sizeof(update->value)\n");
       return ERR_INVALID_ARG;
     }
 
     memcpy(update->value, separator + 1, value_len);
     update->value[value_len] = '\0';
     update->has_value        = 1;
+
+    if (strcmp(update->key, "name") == 0) {
+      const char* prefix = "/etc/maestro/facility/";
+      const char* postfix = ".conf";
+      size_t len = value_len + strlen(prefix) + strlen(postfix) + 1;
+      filename = malloc(len);
+      if (filename) {
+        snprintf(filename, len, "%s%s%s", prefix, update->value, postfix);
+        filename[len] = '\0';
+      }
+    }
   }
 
   return SUCCESS;
@@ -312,7 +327,7 @@ static int osi_merge_config_updates(const char* existing_config, char** merged_c
     int res;
     if (update && update->has_value) {
       res = osi_append_text(&merged, &merged_used, &merged_capacity, update->key,
-                            strlen(update->key));
+      strlen(update->key));
       if (res != SUCCESS) {
         free(merged);
         return res;
@@ -551,12 +566,15 @@ int osi_post_config(Osi_RequestCtx* _ctx) {
   int         body_len = 0;
   const char* body     = osi_get_request_body(_ctx, &body_len);
   if (!body || body_len <= 0) {
+    printf("BAD REQUEST !body || body_len <= 0");
     return osi_set_response(_ctx->conn, 400, "application/json",
                             "{\"error\":\"config body missing\"}");
   }
 
-  int parse_result = osi_parse_config_updates(body, body_len);
+  char* file = NULL;
+  int parse_result = osi_parse_config_updates(body, body_len, file);
   if (parse_result == ERR_INVALID_ARG) {
+    printf("parse_result == ERR_INVALID_ARG");
     return osi_set_response(_ctx->conn, 400, "application/json",
                             "{\"error\":\"invalid config key in update\"}");
   }
@@ -565,12 +583,11 @@ int osi_post_config(Osi_RequestCtx* _ctx) {
                             "{\"error\":\"failed to parse config update\"}");
   }
 
-  const char* existing_config = read_file_to_string(OPTI_CONFIG_PATH);
+  const char* existing_config = read_file_to_string(file);
   if (!existing_config) {
     return osi_set_response(_ctx->conn, 503, "application/json",
-                            "{\"error\":\"optimizer.conf not available\"}");
+        "{\"error\":\"optimizer.conf not available\"}");
   }
-
   char* merged_config = NULL;
   int   merge_result  = osi_merge_config_updates(existing_config, &merged_config);
   free((void*)existing_config);
@@ -579,6 +596,7 @@ int osi_post_config(Osi_RequestCtx* _ctx) {
     return osi_set_response(_ctx->conn, 503, "application/json",
                             "{\"error\":\"failed to merge config update\"}");
   }
+
 
   FILE* config_file = fopen(OPTI_CONFIG_PATH, "w");
   if (!config_file) {
