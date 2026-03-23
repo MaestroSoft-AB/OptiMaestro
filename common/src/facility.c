@@ -106,7 +106,7 @@ Facility_Config** facility_get_configs(const char* _facility_dir, size_t* _facil
   if (!_facility_dir) 
     return NULL;
 
-  Facility_Config** Conf_Array = malloc(1);
+  Facility_Config** Conf_Array = malloc(sizeof(Facility_Config*));
   if (!Conf_Array) {
     LOG_ERROR("malloc");
     return NULL;
@@ -116,6 +116,7 @@ Facility_Config** facility_get_configs(const char* _facility_dir, size_t* _facil
   char** conf_files = list_filenames_with_ext(_facility_dir, "conf", &conf_files_count);
 
   if (!conf_files) {
+    free(Conf_Array);
     LOG_ERROR("list_filenames_with_ext");
     return NULL;
   }

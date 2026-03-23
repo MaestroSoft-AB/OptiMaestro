@@ -2,7 +2,7 @@
 #define __ELRPISJUSTNU_H__
 
 #define EPJN_URL "https://www.elprisetjustnu.se/api/v1/prices/%04i/%02i-%02i_SE%c.json"
-#define EPJN_URL_LEN 64 
+#define EPJN_URL_LEN 128
 
 #include "data/electricity_structs.h"
 

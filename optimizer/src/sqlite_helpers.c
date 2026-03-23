@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "sqlite_helpers.h"
 #include <maestroutils/error.h>
+#include <maestroutils/file_logging.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -102,7 +103,7 @@ int sql_helper_init_schema(SqlHelper* _H)
 
   if (sqlite3_exec(_H->db, sql, NULL, NULL, &err) != SQLITE_OK) {
     if (err) {
-      fprintf(stderr, "sqlite error: %s\n", err);
+      LOG_ERROR("sqlite error: %s\n", err);
       sqlite3_free(err);
     }
     pthread_mutex_unlock(&_H->mutex);
@@ -305,18 +306,14 @@ int sql_helper_read_weather(SqlHelper* _H, Weather* _out, double _latitude, doub
   sqlite3_bind_int(stmt, 4, _panel_azimuth);
   sqlite3_bind_int(stmt, 5, _forecast ? 1 : 0);
 
-  printf("read_weather meta lookup: lat=%f lon=%f tilt=%d az=%u forecast=%d\n", _latitude,
-         _longitude, _panel_tilt, _panel_azimuth, _forecast ? 1 : 0);
-
   if (sqlite3_step(stmt) != SQLITE_ROW) {
     if (sqlite3_step(stmt) != SQLITE_ROW) {
-      printf("read_weather: no matching facility row\n");
+      LOG_WARN("read_weather: no matching facility row\n");
       sqlite3_finalize(stmt);
       _out->count = 0;
       pthread_mutex_unlock(&_H->mutex);
       return SUCCESS;
     }
-    printf("read_weather: facility_id=%lld\n", (long long)facility_id);
     sqlite3_finalize(stmt);
     _out->count = 0;
     pthread_mutex_unlock(&_H->mutex);
@@ -375,9 +372,6 @@ int sql_helper_read_weather(SqlHelper* _H, Weather* _out, double _latitude, doub
   _out->count = 0;
   int capacity = 128;
 
-  printf("read_weather values lookup: facility_id=%lld start=%lld end=%lld\n",
-         (long long)facility_id, (long long)_start, (long long)_end);
-
   _out->values = malloc(sizeof(Weather_Values) * capacity);
   if (!_out->values) {
     sqlite3_finalize(stmt);
@@ -412,7 +406,6 @@ int sql_helper_read_weather(SqlHelper* _H, Weather* _out, double _latitude, doub
     v->sun_duration = sqlite3_column_double(stmt, 10);
   }
 
-  printf("read_weather: fetched %u rows\n", _out->count);
   sqlite3_finalize(stmt);
   pthread_mutex_unlock(&_H->mutex);
   return SUCCESS;
@@ -540,15 +533,17 @@ void sql_helper_close(SqlHelper* _H)
   if (_H->db) {
     pthread_mutex_lock(&_H->mutex);
     sqlite3_close(_H->db);
+    _H->db = NULL;
     pthread_mutex_unlock(&_H->mutex);
   }
 }
 
 void sql_helper_dispose(SqlHelper* _H)
 {
+  sql_helper_close(_H);
+
   if (!_H) {
     return;
   }
-  sqlite3_close(_H->db);
   _H = NULL;
 }

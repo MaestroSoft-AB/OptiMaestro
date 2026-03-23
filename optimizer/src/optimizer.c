@@ -96,6 +96,8 @@ int optimizer_config_set(Optimizer_Config* _OC)
     free(_OC->data_dir);
   if (_OC->data_calcs_dir)
     free(_OC->data_calcs_dir);
+  if (_OC->facility_dir)
+    free(_OC->facility_dir);
 
   const char* keys[] = {
     "sys.max_threads",
@@ -295,7 +297,6 @@ int optimizer_run(Optimizer* _O)
     return ERR_FATAL;
   }
 
-  sql_helper_close(&_O->sqlhelper);
   sql_helper_dispose(&_O->sqlhelper);
   return SUCCESS;
 }
@@ -313,6 +314,8 @@ void optimizer_dispose(Optimizer* _O)
     free(_O->config.data_dir);
   if (_O->config.data_calcs_dir)
     free(_O->config.data_calcs_dir);
+  if (_O->config.facility_dir)
+    free(_O->config.facility_dir);
 
 #ifdef CURL_GLOBAL_DEFAULT
   curl_global_cleanup();

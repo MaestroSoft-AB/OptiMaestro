@@ -27,10 +27,10 @@ static volatile sig_atomic_t sig_new_data = 0;
 static volatile sig_atomic_t sig_update_config = 0;
 
 /* Sighandlers to activate flag */
-void sig_handle_ignore(int _sig) { sig_ignore = 1; }
-void sig_handle_exit(int _sig) { sig_exit = 1; }
-void sig_handle_new_data(int _sig) { sig_new_data = 1; }
-void sig_handle_update_config(int _sig) { sig_update_config = 1; }
+void sig_handle_ignore(int _sig) { LOG_INFO("Sig called: %i", _sig); sig_ignore = 1; }
+void sig_handle_exit(int _sig) { LOG_INFO("Sig called: %i", _sig); sig_exit = 1; }
+void sig_handle_new_data(int _sig) { LOG_INFO("Sig called: %i", _sig); sig_new_data = 1; }
+void sig_handle_update_config(int _sig) { LOG_INFO("Sig called: %i", _sig); sig_update_config = 1; }
 
 static Signal_Wrapper Signals[] = {
     {&sig_ignore, &sig_handle_ignore, SIGINT},
@@ -47,6 +47,7 @@ struct timespec req = {0, 100}; // nanosleep delay, .1 ms
 
 int main(int _argc, const char** _argv)
 {
+  (void)_argc;
 #ifdef DAEMONIZE
   if (daemonize(_argv[0], "/run/maestro/optimizer.pid") != SUCCESS) {
     syslog(LOG_ERR, "%s - daemonization failed", _argv[0]);

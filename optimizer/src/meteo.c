@@ -15,7 +15,6 @@
 
 /* --------------------------- Internal --------------------------- */
 
-/*------------------------------------------------------------------*/
 #define METEO_MAX_URL_LEN 512
 
 typedef struct
@@ -33,18 +32,6 @@ int meteo_parse_forecast(const char* _json, Weather* _Weather, char* _interval);
 int meteo_parse_current(const char* _json, Weather* _Weather, char* _interval);
 
 /* ---------------------------------------------------------------- */
-
-int meteo_get_hourly(Weather* _Weather, float _lat, float _lon, float _panel_azimuth,
-                     float _panel_tilt, time_t _start_date, time_t _end_date)
-{
-  if (!_Weather)
-    return ERR_INVALID_ARG;
-
-  if (_Weather->values != NULL)
-    free(_Weather->values); // free if still allocated for some reason
-
-  return SUCCESS;
-}
 
 int meteo_get_15_minutely(Weather* _Weather, float _lat, float _lon, float _panel_azimuth,
                           float _panel_tilt, time_t _start_date, time_t _end_date)

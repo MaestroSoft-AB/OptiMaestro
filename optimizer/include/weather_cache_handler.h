@@ -13,7 +13,7 @@
 
 typedef struct
 {
-  const char* data_dir;
+  // const char* data_dir;
   float latitude;
   float longitude;
 

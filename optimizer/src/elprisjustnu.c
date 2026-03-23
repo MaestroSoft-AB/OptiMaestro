@@ -178,7 +178,7 @@ int epjn_parse(const EPJN_Spots* const _EPJN, Electricity_Spots* _Spots,
   _Spots->interval = 1440 / _Spots->price_count;
 
   /* Set prices */
-  int i;
+  unsigned int i;
   for (i = 0; i < _Spots->price_count; i++) {
     _Spots->prices[i].time_start = _EPJN->prices[i].time_start;
     _Spots->prices[i].time_end = _EPJN->prices[i].time_end;
