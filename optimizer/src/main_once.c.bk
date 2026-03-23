@@ -1,0 +1,44 @@
+#define _POSIX_C_SOURCE 200809L
+
+#ifdef DAEMONIZE
+  #include "daemon.h"
+  #define USE_SYSLOG 1
+#else
+  #define USE_SYSLOG 0
+#endif
+
+#include "optimizer.h"
+
+#include <maestroutils/error.h>
+#include <maestroutils/signal_handler.h>
+#include <maestromodules/tls_global_ca.h>
+#include <maestroutils/file_logging.h>
+
+#define OPTIMIZER_LOG_PATH "/var/log/maestro.log"
+
+int main(int _argc, const char** _argv)
+{
+  (void)_argc;
+
+  if (log_init(OPTIMIZER_LOG_PATH) != 0) {
+    perror("log_init");  // Only non-daemon uses perror
+    return 1;
+  }
+  LOG_INFO("%s - Started", _argv[0]);
+
+  if (global_tls_ca_init() != SUCCESS) {
+    LOG_INFO("global_tls_ca_init");
+    return 1;
+  }
+
+  Optimizer Opti;
+  if (optimizer_init(&Opti) != SUCCESS) {
+    LOG_INFO("optimizer_init");
+    return 1;
+  }
+
+  optimizer_run(&Opti);
+  optimizer_dispose(&Opti);
+
+  return SUCCESS;
+}
