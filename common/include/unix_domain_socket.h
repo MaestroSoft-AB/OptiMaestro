@@ -6,4 +6,7 @@
 
 
 int uds_client_send(const char* _command);
+
+int uds_server_start(const char* sock_path, int* server_fd_out) ;
+
 #endif

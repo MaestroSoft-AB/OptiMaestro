@@ -16,7 +16,7 @@ UID := $(shell id -u)
 GID := $(shell id -g)
 BIN_DIR	 := /home/$(USER)/.local/bin
 RUN_DIRS := /var/lib/maestro/ /etc/maestro/ /run/maestro
-RUN_FILES := /var/log/maestro.log /run/optimizer.pid
+RUN_FILES := /var/log/maestro.log /run/maestro/optimizer.pid
 CONF_FILE := /etc/maestro/optimizer.conf
 INSTALL_SCRIPT := ../config/install.sh
 
@@ -50,11 +50,11 @@ CACHE_DIR := /var/cache/maestro/optimizer
 # Compilation flags
 CFLAGS := -std=c99 -MMD -MP -Wall -Wextra -Wfatal-errors -g \
 	-Iinclude \
-	-Ilib/include \
 	-I$(MAESTRO_DIR)/modules/include \
 	-I$(MAESTRO_DIR)/utils/include \
 	-I$(MAESTRO_DIR)/external/anonymaestro/include \
 	-I../common/include \
+	-I../lib/include \
 	$(CORE_FLAGS)
 
 CFLAGS += -DMAESTROUTILS_WITH_CJSON -I$(CJSON_DIR)
@@ -185,9 +185,12 @@ daemon-install: $(OBJ) $(MAESTRO_LIB) $(SERVICE_FILE)
 	@rm -f optimizer-daemon
 	@echo "Ensuring system user/group 'maestro' exists..."
 	@sudo id -u maestro >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin maestro
+	@sudo usermod -aG maestro $(USER)
 	@echo "Creating runtime dirs and log file..."
 	@sudo mkdir -p $(RUN_DIRS)
+	@sudo chmod 755 $(RUN_DIRS)
 	@sudo touch $(RUN_FILES)
+	@sudo chmod 644 $(RUN_FILES)
 	@sudo chown -R maestro:maestro $(RUN_DIRS) $(RUN_FILES)
 	@echo "Installing systemd service..."
 	@sudo install -m 0644 $(SERVICE_FILE) /etc/systemd/system/$(SERVICE_FILE)
@@ -212,4 +215,4 @@ daemon-clean:
 
 # ==================== Phonies ====================
 
-.PHONY: all run clean print gdb valgrind asan run-asan install daemon-install daemon-clean
+.PHONY: all run clean print gdb valgrind asan run-asan install daemon-install daemon-clean profile

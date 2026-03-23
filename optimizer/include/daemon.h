@@ -48,13 +48,14 @@ static int daemonize(const char* _prog_name, const char* _pid_file) {
   dup2(0, 1); dup2(0, 2); close(fd);
 
   /* PID file */
-  FILE *pidfile = fopen(_pid_file, "w");
+  FILE* pidfile = fopen(_pid_file, "w");
   if (pidfile) {
     fprintf(pidfile, "%d\n", getpid());
     fclose(pidfile);
+    chmod(_pid_file, 0644);  // World-readable PID file
   }
-
-  openlog("optimizer", LOG_PID | LOG_CONS, LOG_DAEMON);
+  
+  openlog("optimizer", LOG_PID | LOG_CONS, LOG_USER);  // LOG_USER not LOG_DAEMON
   return 0;
 }
 

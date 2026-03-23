@@ -4,7 +4,7 @@
 #include <maestroutils/signal_handler.h>
 #include "unix_domain_socket.h"
 //-----------------Temporary function to trigger optimizer fetch-----------------
-#define OPTI_PIDFILE "/var/run/maestro-optimizer.pid"
+#define OPTI_PIDFILE "/run/maestro/optimizer.pid"
 
 volatile sig_atomic_t stop = 0;
 Opti_Server           Server;
@@ -22,8 +22,8 @@ void handle_sigint(int sig) {
   stop = 1;
 }
 
-int main(void) {
-  // trigger_optimizer();
+int main(void)
+{
   scheduler_init();
   opti_s_init(&Server);
   uds_client_send(RELOAD);

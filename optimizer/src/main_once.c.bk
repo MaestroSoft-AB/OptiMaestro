@@ -1,12 +1,4 @@
 #define _POSIX_C_SOURCE 200809L
-
-#ifdef DAEMONIZE
-  #include "daemon.h"
-  #define USE_SYSLOG 1
-#else
-  #define USE_SYSLOG 0
-#endif
-
 #include "optimizer.h"
 
 #include <maestroutils/error.h>

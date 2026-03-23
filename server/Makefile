@@ -18,7 +18,9 @@ BIN := $(BIN_DIR)/optiserver
 
 # ----- Local server code -----
 SRC_DIR := src
-SRC := $(shell find -L $(SRC_DIR) -type f -name '*.c')
+SERVER_SRC := $(shell find -L $(SRC_DIR) -type f -name '*.c')
+COMMON_SRC := $(shell find -L ../common/src -type f -name '*.c')
+SRC := $(SERVER_SRC) $(COMMON_SRC)
 
 # ----- MaestroCore (submodule) -----
 MAESTRO_DIR ?= ../external/MaestroCore
@@ -47,9 +49,10 @@ endif
 # Linked libraries
 LIBS := -lcurl
 
-# Map .c → .o (ONLY server sources)
-SRC_OBJ := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/$(SRC_DIR)/%.o,$(SRC))
-OBJ := $(SRC_OBJ)
+# Map .c → .o
+SERVER_OBJ := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/$(SRC_DIR)/%.o,$(SERVER_SRC))
+COMMON_OBJ := $(patsubst ../common/src/%.c,$(BUILD_DIR)/common/src/%.o,$(COMMON_SRC))
+OBJ := $(SERVER_OBJ) $(COMMON_OBJ)
 
 # Dependency files (.d)
 DEP := $(OBJ:.o=.d)
@@ -82,12 +85,15 @@ profile: clean
 		LDFLAGS="-Wl,--gc-sections -pg" \
 		all
 
-
 $(BUILD_DIR)/$(SRC_DIR)/%.o: $(SRC_DIR)/%.c
 	@echo "Compiling $<..."
 	@mkdir -p $(dir $@)
 	@$(CC) $(CFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/common/src/%.o: ../common/src/%.c
+	@echo "Compiling $<..."
+	@mkdir -p $(dir $@)
+	@$(CC) $(CFLAGS) -c $< -o $@
 
 run: $(BIN)
 	@echo "Running $(BIN)..."
@@ -120,4 +126,3 @@ print:
 -include $(DEP)
 
 .PHONY: all run clean print gdb valgrind asan profile gprof
-
