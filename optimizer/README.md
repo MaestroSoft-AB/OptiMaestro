@@ -24,7 +24,7 @@ make install
 
 Then compile the optimizer by running:
 ```bash
-make JSON=1
+make
 ```
 
 This will:
@@ -123,5 +123,15 @@ git clone https://github.com/MaestroSoft-AB/OptiMaestroOptimizer.git
 cd OptiMaestroOptimizer
 git submodule update --init --recursive
 sudo make install
-make run JSON=1
+make run
+```
+
+With daemon:
+```bash
+git clone https://github.com/MaestroSoft-AB/OptiMaestroOptimizer.git
+cd OptiMaestroOptimizer
+git submodule update --init --recursive
+sudo make install
+sudo make daemon-install
+sudo systemctl start optimizer-daemon
 ```

@@ -23,10 +23,13 @@ INSTALL_SCRIPT := ../config/install.sh
 # ----- Local source files -----
 SRC_DIR 			 := src
 COMMON_SRC_DIR := ../common/src
+LIB_SRC_DIR    := ../lib/src
 
 SRC 			 := $(shell find -L $(SRC_DIR) -type f -name '*.c')
 COMMON_SRC := $(shell cd $(COMMON_SRC_DIR) && find -L . -type f -name '*.c')
 COMMON_SRC := $(patsubst ./%,%,$(COMMON_SRC))
+LIB_SRC 	 := $(shell cd $(LIB_SRC_DIR) && find -L . -type f -name '*.c')
+LIB_SRC    := $(patsubst ./%,%,$(LIB_SRC))
 
 # ----- MaestroCore (submodule) -----
 MAESTRO_DIR ?= ../external/MaestroCore
@@ -50,6 +53,7 @@ CACHE_DIR := /var/cache/maestro/optimizer
 # Compilation flags
 CFLAGS := -std=c99 -MMD -MP -Wall -Wextra -Wfatal-errors -g -pg \
 	-Iinclude \
+	-Ilib/include \
 	-I$(MAESTRO_DIR)/modules/include \
 	-I$(MAESTRO_DIR)/utils/include \
 	-I$(MAESTRO_DIR)/external/anonymaestro/include \
@@ -69,10 +73,11 @@ LDFLAGS := -flto -Wl,--gc-sections
 LIBS := -lcurl
 
 # Map .c → .o
-SRC_OBJ   	:= $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/$(SRC_DIR)/%.o,$(SRC))
+SRC_OBJ    := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/$(SRC_DIR)/%.o,$(SRC))
 COMMON_OBJ := $(patsubst %.c,$(BUILD_DIR)/common/src/%.o,$(COMMON_SRC))
+LIB_OBJ    := $(patsubst %.c,$(BUILD_DIR)/lib/src/%.o,$(LIB_SRC))
 
-OBJ := $(SRC_OBJ) $(COMMON_OBJ) 
+OBJ := $(SRC_OBJ) $(COMMON_OBJ) $(LIB_OBJ)
 
 # Dependency files (.d)
 DEP := $(OBJ:.o=.d)
@@ -107,6 +112,11 @@ $(BUILD_DIR)/$(SRC_DIR)/%.o: $(SRC_DIR)/%.c
 
 $(BUILD_DIR)/common/src/%.o: $(COMMON_SRC_DIR)/%.c
 	@echo "Compiling COMMON_SRC $<..."
+	@mkdir -p $(dir $@)
+	@$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/lib/src/%.o: $(LIB_SRC_DIR)/%.c
+	@echo "Compiling LIB_SRC $<..."
 	@mkdir -p $(dir $@)
 	@$(CC) $(CFLAGS) -c $< -o $@
 
