@@ -11,7 +11,7 @@ int uds_client_send(const char* _command) {
   int                sock;
   struct sockaddr_un addr;
 
-  sock = socket(AF_UNIX, SOCK_STREAM, 0);
+  sock = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
   if (sock < 0) {
     perror("socket");
     return ERR_FATAL;
@@ -33,12 +33,11 @@ int uds_client_send(const char* _command) {
 }
 
 /* Create and configure the Unix‑domain server socket. */
-int uds_server_start(const char* _sock_path, int* _fd_out) 
-{
+int uds_server_start(const char* _sock_path, int* _fd_out) {
   struct sockaddr_un addr;
   int                sock;
 
-  sock = socket(AF_UNIX, SOCK_STREAM, 0);
+  sock = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
   if (sock < 0) {
     perror("socket");
     return ERR_FATAL;
@@ -48,7 +47,7 @@ int uds_server_start(const char* _sock_path, int* _fd_out)
   addr.sun_family = AF_UNIX;
   strncpy(addr.sun_path, _sock_path, sizeof(addr.sun_path) - 1);
 
-  unlink(_sock_path);                           /* Remove stale socket */
+  unlink(_sock_path); /* Remove stale socket */
   if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
     perror("bind");
     close(sock);

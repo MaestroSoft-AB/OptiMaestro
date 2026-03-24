@@ -1,10 +1,11 @@
 #define _POSIX_C_SOURCE 200809L
+#include <fcntl.h>
 
 #ifdef DAEMONIZE
-  #include "daemon.h"
-  #define USE_SYSLOG 1
+#include "daemon.h"
+#define USE_SYSLOG 1
 #else
-  #define USE_SYSLOG 0
+#define USE_SYSLOG 0
 #endif
 
 #include "optimizer.h"
@@ -22,27 +23,39 @@
 #define OPTIMIZER_LOG_PATH "/var/log/maestro.log"
 
 /* Socket flags */
-static volatile sig_atomic_t socket_run_trigger = 0;
+static volatile sig_atomic_t socket_run_trigger    = 0;
 static volatile sig_atomic_t socket_reload_trigger = 0;
 /* ---------------------------- Signals ----------------------------- */
 
 /* Flags to be activated when signal is recieved */
-static volatile sig_atomic_t sig_ignore = 0;
-static volatile sig_atomic_t sig_exit = 0;
-static volatile sig_atomic_t sig_new_data = 0;
+static volatile sig_atomic_t sig_ignore        = 0;
+static volatile sig_atomic_t sig_exit          = 0;
+static volatile sig_atomic_t sig_new_data      = 0;
 static volatile sig_atomic_t sig_update_config = 0;
 
 /* Sighandlers to activate flag */
-void sig_handle_ignore(int _sig) { LOG_INFO("Sig called: %i", _sig); sig_ignore = 1; }
-void sig_handle_exit(int _sig) { LOG_INFO("Sig called: %i", _sig); sig_exit = 1; }
-void sig_handle_new_data(int _sig) { LOG_INFO("Sig called: %i", _sig); sig_new_data = 1; }
-void sig_handle_update_config(int _sig) { LOG_INFO("Sig called: %i", _sig); sig_update_config = 1; }
+void sig_handle_ignore(int _sig) {
+  LOG_INFO("Sig called: %i", _sig);
+  sig_ignore = 1;
+}
+void sig_handle_exit(int _sig) {
+  LOG_INFO("Sig called: %i", _sig);
+  sig_exit = 1;
+}
+void sig_handle_new_data(int _sig) {
+  LOG_INFO("Sig called: %i", _sig);
+  sig_new_data = 1;
+}
+void sig_handle_update_config(int _sig) {
+  LOG_INFO("Sig called: %i", _sig);
+  sig_update_config = 1;
+}
 
 static Signal_Wrapper Signals[] = {
-  {&sig_ignore, &sig_handle_ignore, SIGINT},
-  {&sig_exit, &sig_handle_exit, SIGTERM},
-  {&sig_new_data, &sig_handle_new_data, SIGUSR1},
-  {&sig_update_config, &sig_handle_update_config, SIGUSR2},
+    {&sig_ignore, &sig_handle_ignore, SIGINT},
+    {&sig_exit, &sig_handle_exit, SIGTERM},
+    {&sig_new_data, &sig_handle_new_data, SIGUSR1},
+    {&sig_update_config, &sig_handle_update_config, SIGUSR2},
 };
 
 static const int sigc = sizeof(Signals) / sizeof(Signals[0]);
@@ -53,26 +66,41 @@ static const int sigc = sizeof(Signals) / sizeof(Signals[0]);
 static int uds_server_step(int server_fd, Optimizer* _Opti) {
   struct sockaddr_un client_addr;
   socklen_t          addr_len = sizeof(client_addr);
-  char               buf[8];  // RUN or RELOAD plus NULL
+  char               buf[8]; // RUN or RELOAD plus NULL
   int                client_fd;
   ssize_t            n;
 
   client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &addr_len);
   if (client_fd < 0) {
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      return SUCCESS;   /* nothing waiting */
+      return SUCCESS; /* nothing waiting */
     }
     perror("accept");
     return ERR_FATAL;
   }
 
+  // make nonblocking
+  int flags = fcntl(client_fd, F_GETFL, 0);
+  if (flags != -1) {
+    fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
+  }
+
   n = read(client_fd, buf, sizeof(buf) - 1);
   if (n < 0) {
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      close(client_fd);
+      return SUCCESS;
+    }
     perror("read");
     close(client_fd);
     return ERR_FATAL;
   }
+  if (n == 0) {
+    close(client_fd);
+    return SUCCESS;
+  }
   buf[n] = '\0';
+
 
   if (strcmp(buf, RUN) == 0) {
     LOG_INFO("%s - Triggered by socket: RUN", "_Optimizer");
@@ -98,15 +126,14 @@ struct timespec req = {0, 100}; // nanosleep delay, .1 ms
 
 /* ------------------------------------------------------------------ */
 
-int main(int _argc, const char** _argv)
-{
+int main(int _argc, const char** _argv) {
   (void)_argc;
 #ifdef DAEMONIZE
   if (daemonize(_argv[0], "/run/maestro/optimizer.pid") != SUCCESS) {
     syslog(LOG_ERR, "%s - daemonization failed", _argv[0]);
     exit(1);
   }
-  
+
   if (log_init(OPTIMIZER_LOG_PATH) != 0) {
     syslog(LOG_ERR, "log_init failed for %s", OPTIMIZER_LOG_PATH);
     exit(1);
@@ -114,7 +141,7 @@ int main(int _argc, const char** _argv)
   LOG_INFO("Daemon fully started (PID %d)", getpid());
 #else
   if (log_init(OPTIMIZER_LOG_PATH) != 0) {
-    perror("log_init");  // Only non-daemon uses perror
+    perror("log_init"); // Only non-daemon uses perror
     exit(1);
   }
   LOG_INFO("%s - Started", _argv[0]);
@@ -131,7 +158,7 @@ int main(int _argc, const char** _argv)
     exit(1);
   }
 
-  time_t now = time(NULL);
+  time_t now      = time(NULL);
   time_t next_run = ((now / 900) + 1) * 900;
 
   /* Start Unix socket server */
