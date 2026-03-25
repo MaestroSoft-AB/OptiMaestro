@@ -29,28 +29,28 @@ Make sure the following components are installed on your system:
     - Linux (recommended and tested environment)
     - Submodules initialized (`MaestroCore`, `cJSON`)
 
-    Initialize submodules:
-    ```bash
-    git submodule update --init --recursive
-    ```
+Initialize submodules:
+```bash
+git submodule update --init --recursive
+```
 
 ### Building the project
 
-    The main Makefile provides a modular, dependency-aware build system that automatically handles MaestroCore and all project modules (server, optimizer).
+The main Makefile provides a modular, dependency-aware build system that automatically handles MaestroCore and all project modules (server, optimizer).
 
-    - Build individual modules:
-    ```bash
-    make optimizer
-    make server
-    ```
-    These can be expanded to build using their indivudual recipes:
-    ```bash
-    make optimizer/install
-    make optimizer/daemon-install
-    make server/run
-    ```
+- Build individual modules:
+```bash
+make optimizer
+make server
+```
+These can be expanded to build using their indivudual recipes:
+```bash
+make optimizer/install
+make optimizer/daemon-install
+make server/run
+```
 
-    - Clean build artifacts:
-    ```bash
-    make clean
-    ```
+- Clean build artifacts:
+```bash
+make clean
+```
