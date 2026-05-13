@@ -1,31 +1,36 @@
 #include "opti/opti_instance.h"
 #include "data/calc_name.h"
+#include "data/meter_reading.h"
 #include "maestromodules/http_parser.h"
+#include "maestroutils/json_utils.h"
+#include "unix_domain_socket.h"
 #include <dirent.h>
 #include <maestroutils/file_utils.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "unix_domain_socket.h"
 
 #define OPTI_AVERAGE_PATH "/var/lib/maestro/calcs/"
 #define OPTI_CONFIG_PATH "/etc/maestro/optimizer.conf"
 #define OPTI_FACILITY_CONF_DIR_FALLBACK "/etc/maestro/facility"
 #define OPTI_CONFIG_EDITABLE_COUNT 8
 
-static const char* osi_blank_facility_config =
-    "name=\n"
-    "currency=SEK\n"
-    "price_class=3\n"
-    "latitude=0\n"
-    "longitude=0\n"
-    "panel.tilt=0\n"
-    "panel.azimuth=0\n"
-    "panel.m2_size=0\n";
+static const char* osi_blank_facility_config = "name=\n"
+                                               "currency=SEK\n"
+                                               "price_class=3\n"
+                                               "latitude=0\n"
+                                               "longitude=0\n"
+                                               "panel.tilt=0\n"
+                                               "panel.azimuth=0\n"
+                                               "panel.m2_size=0\n";
 
 static int osi_append_text(char** buffer, size_t* used, size_t* capacity, const char* text,
                            size_t text_len);
+static int osi_parse_meter_reading_json(const char* body, int body_len, Meter_Reading* reading);
+static int osi_meter_reading_to_json(const Meter_Reading* reading, time_t received_at,
+                                     char** body_out);
 
 //-----------------Internal Functions-----------------
 //
@@ -49,69 +54,98 @@ int osi_get_config(Osi_RequestCtx* _ctx);
 int osi_post_config(Osi_RequestCtx* _ctx);
 int osi_recalc(Osi_RequestCtx* _ctx);
 int osi_kill(Osi_RequestCtx* _ctx);
+int osi_post_ingest(Osi_RequestCtx* _ctx);
+int osi_get_power_current(Osi_RequestCtx* _ctx);
+int osi_get_display_current(Osi_RequestCtx* _ctx);
+int osi_get_display_graph_hour(Osi_RequestCtx* _ctx);
 /* REMEMBER TO CHANGE COUNT WHEN ADDING ENDPOINT! */
-#define ENDPOINTS_COUNT 11
+#define ENDPOINTS_COUNT 15
 int osi_get_facilities(Osi_RequestCtx* _ctx);
 
 
-const Device_API_Endpoint Endpoints[ENDPOINTS_COUNT] = {{
-                                                            "/solar-cell",
-                                                            HTTP_GET,
-                                                            osi_get_solar_data,
-                                                        },
-                                                        {
-                                                            "/temp-sensor-1",
-                                                            HTTP_GET,
-                                                            osi_get_temp_1_data,
-                                                        },
-                                                        {
-                                                            "/jacuzzi",
-                                                            HTTP_GET,
-                                                            osi_get_jacuzzi_data,
-                                                        },
-                                                        {
-                                                            "/overview",
-                                                            HTTP_GET,
-                                                            osi_get_overview,
-                                                        },
-                                                        {
-                                                            "/average-daily",
-                                                            HTTP_GET,
-                                                            osi_get_average_daily,
-                                                        },
-                                                        {
-                                                            "/average-hourly",
-                                                            HTTP_GET,
-                                                            osi_get_average_hourly,
-                                                        },
-                                                        {
-                                                            "/config",
-                                                            HTTP_GET,
-                                                            osi_get_config,
-                                                        },
-                                                        {
-                                                            "/config",
-                                                            HTTP_POST,
-                                                            osi_post_config,
-                                                        },
-                                                        {
-                                                            "/recalc",
-                                                            HTTP_GET,
-                                                            osi_recalc,
-                                                        },
-                                                        {
-                                                            "/kill",
-                                                            HTTP_GET,
-                                                            osi_kill,
-                                                        },
-                                                        {
-                                                            "/facilities",
-                                                            HTTP_GET,
-                                                            osi_get_facilities,
-                                                        },
+const Device_API_Endpoint Endpoints[ENDPOINTS_COUNT] = {
+    {
+        "/solar-cell",
+        HTTP_GET,
+        osi_get_solar_data,
+    },
+    {
+        "/temp-sensor-1",
+        HTTP_GET,
+        osi_get_temp_1_data,
+    },
+    {
+        "/jacuzzi",
+        HTTP_GET,
+        osi_get_jacuzzi_data,
+    },
+    {
+        "/overview",
+        HTTP_GET,
+        osi_get_overview,
+    },
+    {
+        "/average-daily",
+        HTTP_GET,
+        osi_get_average_daily,
+    },
+    {
+        "/average-hourly",
+        HTTP_GET,
+        osi_get_average_hourly,
+    },
+    {
+        "/config",
+        HTTP_GET,
+        osi_get_config,
+    },
+    {
+        "/config",
+        HTTP_POST,
+        osi_post_config,
+    },
+    {
+        "/recalc",
+        HTTP_GET,
+        osi_recalc,
+    },
+    {
+        "/kill",
+        HTTP_GET,
+        osi_kill,
+    },
+    {
+        "/facilities",
+        HTTP_GET,
+        osi_get_facilities,
+    },
+    {
+        "/ingest",
+        HTTP_POST,
+        osi_post_ingest,
+    },
+    {
+        "/power/current",
+        HTTP_GET,
+        osi_get_power_current,
+    },
+    {
+        "/display/current",
+        HTTP_GET,
+        osi_get_display_current,
+    },
+    {
+        "/display/graph/hour",
+        HTTP_GET,
+        osi_get_display_graph_hour,
+    },
 
 
 };
+
+static Meter_Reading osi_latest_meter_reading;
+static time_t        osi_latest_meter_reading_received_at;
+static int           osi_has_latest_meter_reading = 0;
 
 //--------------------------------------------------------------------------//
 
@@ -180,8 +214,7 @@ static const char* osi_get_request_body(Osi_RequestCtx* _ctx, int* _body_len) {
   return (const char*)_ctx->conn->tcp_client.data.addr;
 }
 
-static const char* osi_get_query_param(HTTP_Request* req, const char* key)
-{
+static const char* osi_get_query_param(HTTP_Request* req, const char* key) {
   if (!req || !key || !req->params) {
     return NULL;
   }
@@ -196,22 +229,395 @@ static const char* osi_get_query_param(HTTP_Request* req, const char* key)
   return NULL;
 }
 
-static int osi_copy_config_value(const char* text, const char* key, char* value_out, size_t value_out_size)
-{
+static cJSON* osi_get_json_item_any(cJSON* root, const char* const* keys) {
+  if (!root || !keys) {
+    return NULL;
+  }
+
+  for (int i = 0; keys[i] != NULL; ++i) {
+    cJSON* item = cJSON_GetObjectItemCaseSensitive(root, keys[i]);
+    if (item) {
+      return item;
+    }
+  }
+
+  return NULL;
+}
+
+static int osi_json_read_double_any(cJSON* root, const char* const* keys, double* out) {
+  cJSON* item = osi_get_json_item_any(root, keys);
+  if (!item || !cJSON_IsNumber(item) || !out) {
+    return 0;
+  }
+
+  *out = item->valuedouble;
+  return 1;
+}
+
+static int osi_json_read_uint32_any(cJSON* root, const char* const* keys, uint32_t* out) {
+  cJSON* item = osi_get_json_item_any(root, keys);
+  if (!item || !cJSON_IsNumber(item) || !out) {
+    return 0;
+  }
+
+  *out = (uint32_t)item->valuedouble;
+  return 1;
+}
+
+static int osi_json_read_uint16_any(cJSON* root, const char* const* keys, uint16_t* out) {
+  cJSON* item = osi_get_json_item_any(root, keys);
+  if (!item || !cJSON_IsNumber(item) || !out) {
+    return 0;
+  }
+
+  *out = (uint16_t)item->valuedouble;
+  return 1;
+}
+
+static int osi_json_read_uint8_any(cJSON* root, const char* const* keys, uint8_t* out) {
+  cJSON* item = osi_get_json_item_any(root, keys);
+  if (!item || !cJSON_IsNumber(item) || !out) {
+    return 0;
+  }
+
+  *out = (uint8_t)item->valuedouble;
+  return 1;
+}
+
+static int osi_json_read_string_any(cJSON* root, const char* const* keys, char* out,
+                                    size_t out_size) {
+  cJSON* item = osi_get_json_item_any(root, keys);
+  if (!item || !cJSON_IsString(item) || !item->valuestring || !out || out_size == 0) {
+    return 0;
+  }
+
+  snprintf(out, out_size, "%s", item->valuestring);
+  return 1;
+}
+
+static void osi_json_add_string_if_present(cJSON* root, uint64_t flags, uint64_t flag,
+                                           const char* key, const char* value) {
+  if ((flags & flag) != 0) {
+    cJSON_AddStringToObject(root, key, value ? value : "");
+  }
+}
+
+static void osi_json_add_number_if_present(cJSON* root, uint64_t flags, uint64_t flag,
+                                           const char* key, double value) {
+  if ((flags & flag) != 0) {
+    cJSON_AddNumberToObject(root, key, value);
+  }
+}
+
+static void osi_json_add_uint_if_present(cJSON* root, uint64_t flags, uint64_t flag,
+                                         const char* key, uint32_t value) {
+  if ((flags & flag) != 0) {
+    cJSON_AddNumberToObject(root, key, value);
+  }
+}
+
+static int osi_parse_meter_reading_json(const char* body, int body_len, Meter_Reading* reading) {
+  if (!body || body_len <= 0 || !reading) {
+    return ERR_INVALID_ARG;
+  }
+
+  cJSON* root = cJSON_ParseWithLength(body, (size_t)body_len);
+  if (!root) {
+    return ERR_INVALID_ARG;
+  }
+
+  memset(reading, 0, sizeof(Meter_Reading));
+
+  const char* id_keys[]               = {"unique_id", "id", NULL};
+  const char* model_keys[]            = {"meter_model", "model", NULL};
+  const char* timestamp_keys[]        = {"timestamp", NULL};
+  const char* protocol_keys[]         = {"protocol_version", NULL};
+  const char* tariff_keys[]           = {"tariff", "active_tariff", NULL};
+  const char* energy_import_keys[]    = {"energy_import_kwh", "total_power_import_kwh", NULL};
+  const char* energy_import_t1_keys[] = {"energy_import_t1_kwh", "total_power_import_t1_kwh", NULL};
+  const char* energy_import_t2_keys[] = {"energy_import_t2_kwh", "total_power_import_t2_kwh", NULL};
+  const char* energy_import_t3_keys[] = {"energy_import_t3_kwh", "total_power_import_t3_kwh", NULL};
+  const char* energy_import_t4_keys[] = {"energy_import_t4_kwh", "total_power_import_t4_kwh", NULL};
+  const char* energy_export_keys[]    = {"energy_export_kwh", "total_power_export_kwh", NULL};
+  const char* energy_export_t1_keys[] = {"energy_export_t1_kwh", "total_power_export_t1_kwh", NULL};
+  const char* energy_export_t2_keys[] = {"energy_export_t2_kwh", "total_power_export_t2_kwh", NULL};
+  const char* energy_export_t3_keys[] = {"energy_export_t3_kwh", "total_power_export_t3_kwh", NULL};
+  const char* energy_export_t4_keys[] = {"energy_export_t4_kwh", "total_power_export_t4_kwh", NULL};
+  const char* power_keys[]            = {"power_w", "active_power_w", NULL};
+  const char* power_l1_keys[]         = {"power_l1_w", "active_power_l1_w", NULL};
+  const char* power_l2_keys[]         = {"power_l2_w", "active_power_l2_w", NULL};
+  const char* power_l3_keys[]         = {"power_l3_w", "active_power_l3_w", NULL};
+  const char* voltage_keys[]          = {"voltage_v", "active_voltage_v", NULL};
+  const char* voltage_l1_keys[]       = {"voltage_l1_v", "active_voltage_l1_v", NULL};
+  const char* voltage_l2_keys[]       = {"voltage_l2_v", "active_voltage_l2_v", NULL};
+  const char* voltage_l3_keys[]       = {"voltage_l3_v", "active_voltage_l3_v", NULL};
+  const char* current_keys[]          = {"current_a", "active_current_a", NULL};
+  const char* current_l1_keys[]       = {"current_l1_a", "active_current_l1_a", NULL};
+  const char* current_l2_keys[]       = {"current_l2_a", "active_current_l2_a", NULL};
+  const char* current_l3_keys[]       = {"current_l3_a", "active_current_l3_a", NULL};
+  const char* frequency_keys[]        = {"frequency_hz", "active_frequency_hz", NULL};
+  const char* voltage_sag_l1_keys[]   = {"voltage_sag_l1_count", NULL};
+  const char* voltage_sag_l2_keys[]   = {"voltage_sag_l2_count", NULL};
+  const char* voltage_sag_l3_keys[]   = {"voltage_sag_l3_count", NULL};
+  const char* voltage_swell_l1_keys[] = {"voltage_swell_l1_count", NULL};
+  const char* voltage_swell_l2_keys[] = {"voltage_swell_l2_count", NULL};
+  const char* voltage_swell_l3_keys[] = {"voltage_swell_l3_count", NULL};
+  const char* any_power_fail_keys[]   = {"any_power_fail_count", "any_power_failure_count", NULL};
+  const char* long_power_fail_keys[]  = {"long_power_fail_count", "long_power_failure_count", NULL};
+  const char* average_power_15m_keys[]            = {"average_power_15m_w", NULL};
+  const char* monthly_power_peak_keys[]           = {"monthly_power_peak_w", NULL};
+  const char* monthly_power_peak_timestamp_keys[] = {"monthly_power_peak_timestamp", NULL};
+
+  if (osi_json_read_string_any(root, id_keys, reading->unique_id, sizeof(reading->unique_id))) {
+    reading->present_flags |= METER_READING_PRESENT_ID;
+  }
+  if (osi_json_read_string_any(root, model_keys, reading->meter_model,
+                               sizeof(reading->meter_model))) {
+    reading->present_flags |= METER_READING_PRESENT_MODEL;
+  }
+  if (osi_json_read_string_any(root, timestamp_keys, reading->timestamp,
+                               sizeof(reading->timestamp))) {
+    reading->present_flags |= METER_READING_PRESENT_TIMESTAMP;
+  }
+  if (osi_json_read_uint16_any(root, protocol_keys, &reading->protocol_version)) {
+    reading->present_flags |= METER_READING_PRESENT_PROTOCOL_VERSION;
+  }
+  if (osi_json_read_uint8_any(root, tariff_keys, &reading->tariff)) {
+    reading->present_flags |= METER_READING_PRESENT_TARIFF;
+  }
+  if (osi_json_read_double_any(root, energy_import_keys, &reading->energy_import_kwh)) {
+    reading->present_flags |= METER_READING_PRESENT_ENERGY_IMPORT;
+  }
+  if (osi_json_read_double_any(root, energy_import_t1_keys, &reading->energy_import_t1_kwh)) {
+    reading->present_flags |= METER_READING_PRESENT_ENERGY_IMPORT_T1;
+  }
+  if (osi_json_read_double_any(root, energy_import_t2_keys, &reading->energy_import_t2_kwh)) {
+    reading->present_flags |= METER_READING_PRESENT_ENERGY_IMPORT_T2;
+  }
+  if (osi_json_read_double_any(root, energy_import_t3_keys, &reading->energy_import_t3_kwh)) {
+    reading->present_flags |= METER_READING_PRESENT_ENERGY_IMPORT_T3;
+  }
+  if (osi_json_read_double_any(root, energy_import_t4_keys, &reading->energy_import_t4_kwh)) {
+    reading->present_flags |= METER_READING_PRESENT_ENERGY_IMPORT_T4;
+  }
+  if (osi_json_read_double_any(root, energy_export_keys, &reading->energy_export_kwh)) {
+    reading->present_flags |= METER_READING_PRESENT_ENERGY_EXPORT;
+  }
+  if (osi_json_read_double_any(root, energy_export_t1_keys, &reading->energy_export_t1_kwh)) {
+    reading->present_flags |= METER_READING_PRESENT_ENERGY_EXPORT_T1;
+  }
+  if (osi_json_read_double_any(root, energy_export_t2_keys, &reading->energy_export_t2_kwh)) {
+    reading->present_flags |= METER_READING_PRESENT_ENERGY_EXPORT_T2;
+  }
+  if (osi_json_read_double_any(root, energy_export_t3_keys, &reading->energy_export_t3_kwh)) {
+    reading->present_flags |= METER_READING_PRESENT_ENERGY_EXPORT_T3;
+  }
+  if (osi_json_read_double_any(root, energy_export_t4_keys, &reading->energy_export_t4_kwh)) {
+    reading->present_flags |= METER_READING_PRESENT_ENERGY_EXPORT_T4;
+  }
+  if (osi_json_read_double_any(root, power_keys, &reading->power_w)) {
+    reading->present_flags |= METER_READING_PRESENT_POWER;
+  }
+  if (osi_json_read_double_any(root, power_l1_keys, &reading->power_l1_w)) {
+    reading->present_flags |= METER_READING_PRESENT_POWER_L1;
+  }
+  if (osi_json_read_double_any(root, power_l2_keys, &reading->power_l2_w)) {
+    reading->present_flags |= METER_READING_PRESENT_POWER_L2;
+  }
+  if (osi_json_read_double_any(root, power_l3_keys, &reading->power_l3_w)) {
+    reading->present_flags |= METER_READING_PRESENT_POWER_L3;
+  }
+  if (osi_json_read_double_any(root, voltage_keys, &reading->voltage_v)) {
+    reading->present_flags |= METER_READING_PRESENT_VOLTAGE;
+  }
+  if (osi_json_read_double_any(root, voltage_l1_keys, &reading->voltage_l1_v)) {
+    reading->present_flags |= METER_READING_PRESENT_VOLTAGE_L1;
+  }
+  if (osi_json_read_double_any(root, voltage_l2_keys, &reading->voltage_l2_v)) {
+    reading->present_flags |= METER_READING_PRESENT_VOLTAGE_L2;
+  }
+  if (osi_json_read_double_any(root, voltage_l3_keys, &reading->voltage_l3_v)) {
+    reading->present_flags |= METER_READING_PRESENT_VOLTAGE_L3;
+  }
+  if (osi_json_read_double_any(root, current_keys, &reading->current_a)) {
+    reading->present_flags |= METER_READING_PRESENT_CURRENT;
+  }
+  if (osi_json_read_double_any(root, current_l1_keys, &reading->current_l1_a)) {
+    reading->present_flags |= METER_READING_PRESENT_CURRENT_L1;
+  }
+  if (osi_json_read_double_any(root, current_l2_keys, &reading->current_l2_a)) {
+    reading->present_flags |= METER_READING_PRESENT_CURRENT_L2;
+  }
+  if (osi_json_read_double_any(root, current_l3_keys, &reading->current_l3_a)) {
+    reading->present_flags |= METER_READING_PRESENT_CURRENT_L3;
+  }
+  if (osi_json_read_double_any(root, frequency_keys, &reading->frequency_hz)) {
+    reading->present_flags |= METER_READING_PRESENT_FREQUENCY;
+  }
+  if (osi_json_read_uint32_any(root, voltage_sag_l1_keys, &reading->voltage_sag_l1_count) ||
+      osi_json_read_uint32_any(root, voltage_sag_l2_keys, &reading->voltage_sag_l2_count) ||
+      osi_json_read_uint32_any(root, voltage_sag_l3_keys, &reading->voltage_sag_l3_count)) {
+    reading->present_flags |= METER_READING_PRESENT_VOLTAGE_SAG;
+  }
+  if (osi_json_read_uint32_any(root, voltage_swell_l1_keys, &reading->voltage_swell_l1_count) ||
+      osi_json_read_uint32_any(root, voltage_swell_l2_keys, &reading->voltage_swell_l2_count) ||
+      osi_json_read_uint32_any(root, voltage_swell_l3_keys, &reading->voltage_swell_l3_count)) {
+    reading->present_flags |= METER_READING_PRESENT_VOLTAGE_SWELL;
+  }
+  if (osi_json_read_uint32_any(root, any_power_fail_keys, &reading->any_power_fail_count) ||
+      osi_json_read_uint32_any(root, long_power_fail_keys, &reading->long_power_fail_count)) {
+    reading->present_flags |= METER_READING_PRESENT_POWER_FAIL;
+  }
+  if (osi_json_read_double_any(root, average_power_15m_keys, &reading->average_power_15m_w)) {
+    reading->present_flags |= METER_READING_PRESENT_AVERAGE_POWER_15M;
+  }
+  if (osi_json_read_double_any(root, monthly_power_peak_keys, &reading->monthly_power_peak_w) ||
+      osi_json_read_string_any(root, monthly_power_peak_timestamp_keys,
+                               reading->monthly_power_peak_timestamp,
+                               sizeof(reading->monthly_power_peak_timestamp))) {
+    reading->present_flags |= METER_READING_PRESENT_MONTHLY_POWER_PEAK;
+  }
+
+  cJSON_Delete(root);
+
+  if ((reading->present_flags & METER_READING_PRESENT_POWER) == 0) {
+    return ERR_INVALID_ARG;
+  }
+
+  return SUCCESS;
+}
+
+static int osi_meter_reading_to_json(const Meter_Reading* reading, time_t received_at,
+                                     char** body_out) {
+  if (!reading || !body_out) {
+    return ERR_INVALID_ARG;
+  }
+
+  *body_out   = NULL;
+  cJSON* root = cJSON_CreateObject();
+  if (!root) {
+    return ERR_NO_MEMORY;
+  }
+
+  cJSON_AddNumberToObject(root, "received_at", (double)received_at);
+  cJSON_AddNumberToObject(root, "present_flags", (double)reading->present_flags);
+
+  osi_json_add_string_if_present(root, reading->present_flags, METER_READING_PRESENT_ID,
+                                 "unique_id", reading->unique_id);
+  osi_json_add_string_if_present(root, reading->present_flags, METER_READING_PRESENT_MODEL,
+                                 "meter_model", reading->meter_model);
+  osi_json_add_string_if_present(root, reading->present_flags, METER_READING_PRESENT_TIMESTAMP,
+                                 "timestamp", reading->timestamp);
+  osi_json_add_uint_if_present(root, reading->present_flags, METER_READING_PRESENT_PROTOCOL_VERSION,
+                               "protocol_version", reading->protocol_version);
+  osi_json_add_uint_if_present(root, reading->present_flags, METER_READING_PRESENT_TARIFF, "tariff",
+                               reading->tariff);
+  osi_json_add_number_if_present(root, reading->present_flags, METER_READING_PRESENT_ENERGY_IMPORT,
+                                 "energy_import_kwh", reading->energy_import_kwh);
+  osi_json_add_number_if_present(root, reading->present_flags,
+                                 METER_READING_PRESENT_ENERGY_IMPORT_T1, "energy_import_t1_kwh",
+                                 reading->energy_import_t1_kwh);
+  osi_json_add_number_if_present(root, reading->present_flags,
+                                 METER_READING_PRESENT_ENERGY_IMPORT_T2, "energy_import_t2_kwh",
+                                 reading->energy_import_t2_kwh);
+  osi_json_add_number_if_present(root, reading->present_flags,
+                                 METER_READING_PRESENT_ENERGY_IMPORT_T3, "energy_import_t3_kwh",
+                                 reading->energy_import_t3_kwh);
+  osi_json_add_number_if_present(root, reading->present_flags,
+                                 METER_READING_PRESENT_ENERGY_IMPORT_T4, "energy_import_t4_kwh",
+                                 reading->energy_import_t4_kwh);
+  osi_json_add_number_if_present(root, reading->present_flags, METER_READING_PRESENT_ENERGY_EXPORT,
+                                 "energy_export_kwh", reading->energy_export_kwh);
+  osi_json_add_number_if_present(root, reading->present_flags,
+                                 METER_READING_PRESENT_ENERGY_EXPORT_T1, "energy_export_t1_kwh",
+                                 reading->energy_export_t1_kwh);
+  osi_json_add_number_if_present(root, reading->present_flags,
+                                 METER_READING_PRESENT_ENERGY_EXPORT_T2, "energy_export_t2_kwh",
+                                 reading->energy_export_t2_kwh);
+  osi_json_add_number_if_present(root, reading->present_flags,
+                                 METER_READING_PRESENT_ENERGY_EXPORT_T3, "energy_export_t3_kwh",
+                                 reading->energy_export_t3_kwh);
+  osi_json_add_number_if_present(root, reading->present_flags,
+                                 METER_READING_PRESENT_ENERGY_EXPORT_T4, "energy_export_t4_kwh",
+                                 reading->energy_export_t4_kwh);
+  osi_json_add_number_if_present(root, reading->present_flags, METER_READING_PRESENT_POWER,
+                                 "power_w", reading->power_w);
+  osi_json_add_number_if_present(root, reading->present_flags, METER_READING_PRESENT_POWER_L1,
+                                 "power_l1_w", reading->power_l1_w);
+  osi_json_add_number_if_present(root, reading->present_flags, METER_READING_PRESENT_POWER_L2,
+                                 "power_l2_w", reading->power_l2_w);
+  osi_json_add_number_if_present(root, reading->present_flags, METER_READING_PRESENT_POWER_L3,
+                                 "power_l3_w", reading->power_l3_w);
+  osi_json_add_number_if_present(root, reading->present_flags, METER_READING_PRESENT_VOLTAGE,
+                                 "voltage_v", reading->voltage_v);
+  osi_json_add_number_if_present(root, reading->present_flags, METER_READING_PRESENT_VOLTAGE_L1,
+                                 "voltage_l1_v", reading->voltage_l1_v);
+  osi_json_add_number_if_present(root, reading->present_flags, METER_READING_PRESENT_VOLTAGE_L2,
+                                 "voltage_l2_v", reading->voltage_l2_v);
+  osi_json_add_number_if_present(root, reading->present_flags, METER_READING_PRESENT_VOLTAGE_L3,
+                                 "voltage_l3_v", reading->voltage_l3_v);
+  osi_json_add_number_if_present(root, reading->present_flags, METER_READING_PRESENT_CURRENT,
+                                 "current_a", reading->current_a);
+  osi_json_add_number_if_present(root, reading->present_flags, METER_READING_PRESENT_CURRENT_L1,
+                                 "current_l1_a", reading->current_l1_a);
+  osi_json_add_number_if_present(root, reading->present_flags, METER_READING_PRESENT_CURRENT_L2,
+                                 "current_l2_a", reading->current_l2_a);
+  osi_json_add_number_if_present(root, reading->present_flags, METER_READING_PRESENT_CURRENT_L3,
+                                 "current_l3_a", reading->current_l3_a);
+  osi_json_add_number_if_present(root, reading->present_flags, METER_READING_PRESENT_FREQUENCY,
+                                 "frequency_hz", reading->frequency_hz);
+  osi_json_add_uint_if_present(root, reading->present_flags, METER_READING_PRESENT_VOLTAGE_SAG,
+                               "voltage_sag_l1_count", reading->voltage_sag_l1_count);
+  osi_json_add_uint_if_present(root, reading->present_flags, METER_READING_PRESENT_VOLTAGE_SAG,
+                               "voltage_sag_l2_count", reading->voltage_sag_l2_count);
+  osi_json_add_uint_if_present(root, reading->present_flags, METER_READING_PRESENT_VOLTAGE_SAG,
+                               "voltage_sag_l3_count", reading->voltage_sag_l3_count);
+  osi_json_add_uint_if_present(root, reading->present_flags, METER_READING_PRESENT_VOLTAGE_SWELL,
+                               "voltage_swell_l1_count", reading->voltage_swell_l1_count);
+  osi_json_add_uint_if_present(root, reading->present_flags, METER_READING_PRESENT_VOLTAGE_SWELL,
+                               "voltage_swell_l2_count", reading->voltage_swell_l2_count);
+  osi_json_add_uint_if_present(root, reading->present_flags, METER_READING_PRESENT_VOLTAGE_SWELL,
+                               "voltage_swell_l3_count", reading->voltage_swell_l3_count);
+  osi_json_add_uint_if_present(root, reading->present_flags, METER_READING_PRESENT_POWER_FAIL,
+                               "any_power_fail_count", reading->any_power_fail_count);
+  osi_json_add_uint_if_present(root, reading->present_flags, METER_READING_PRESENT_POWER_FAIL,
+                               "long_power_fail_count", reading->long_power_fail_count);
+  osi_json_add_number_if_present(root, reading->present_flags,
+                                 METER_READING_PRESENT_AVERAGE_POWER_15M, "average_power_15m_w",
+                                 reading->average_power_15m_w);
+  osi_json_add_number_if_present(root, reading->present_flags,
+                                 METER_READING_PRESENT_MONTHLY_POWER_PEAK, "monthly_power_peak_w",
+                                 reading->monthly_power_peak_w);
+  osi_json_add_string_if_present(
+      root, reading->present_flags, METER_READING_PRESENT_MONTHLY_POWER_PEAK,
+      "monthly_power_peak_timestamp", reading->monthly_power_peak_timestamp);
+
+  *body_out = cJSON_PrintUnformatted(root);
+  cJSON_Delete(root);
+
+  if (!*body_out) {
+    return ERR_NO_MEMORY;
+  }
+
+  return SUCCESS;
+}
+
+static int osi_copy_config_value(const char* text, const char* key, char* value_out,
+                                 size_t value_out_size) {
   if (!text || !key || !value_out || value_out_size == 0) {
     return ERR_INVALID_ARG;
   }
 
-  value_out[0] = '\0';
-  size_t key_len = strlen(key);
-  const char* cursor = text;
+  value_out[0]        = '\0';
+  size_t      key_len = strlen(key);
+  const char* cursor  = text;
 
   while (*cursor != '\0') {
     const char* line_start = cursor;
-    const char* line_end = strchr(cursor, '\n');
+    const char* line_end   = strchr(cursor, '\n');
     if (!line_end) {
       line_end = cursor + strlen(cursor);
-      cursor = line_end;
+      cursor   = line_end;
     } else {
       cursor = line_end + 1;
     }
@@ -242,8 +648,7 @@ static int osi_copy_config_value(const char* text, const char* key, char* value_
   return ERR_NOT_FOUND;
 }
 
-static int osi_get_facility_config_dir(char* dir_out, size_t dir_out_size)
-{
+static int osi_get_facility_config_dir(char* dir_out, size_t dir_out_size) {
   if (!dir_out || dir_out_size == 0) {
     return ERR_INVALID_ARG;
   }
@@ -264,15 +669,15 @@ static int osi_get_facility_config_dir(char* dir_out, size_t dir_out_size)
   return SUCCESS;
 }
 
-static void osi_build_facility_filename(const char* facility_name, char* filename_out, size_t filename_out_size)
-{
+static void osi_build_facility_filename(const char* facility_name, char* filename_out,
+                                        size_t filename_out_size) {
   if (!facility_name || !filename_out || filename_out_size == 0) {
     return;
   }
 
   size_t write_index = 0;
-  for (size_t read_index = 0; facility_name[read_index] != '\0' && write_index + 6 < filename_out_size;
-       ++read_index) {
+  for (size_t read_index = 0;
+       facility_name[read_index] != '\0' && write_index + 6 < filename_out_size; ++read_index) {
     unsigned char ch = (unsigned char)facility_name[read_index];
     if (ch == '/' || ch == '\\' || ch < 32 || ch == ':') {
       filename_out[write_index++] = '_';
@@ -290,14 +695,13 @@ static void osi_build_facility_filename(const char* facility_name, char* filenam
 }
 
 static int osi_find_facility_config_path(const char* facility_name, int create_if_missing,
-                                         char* path_out, size_t path_out_size)
-{
+                                         char* path_out, size_t path_out_size) {
   if (!facility_name || !path_out || path_out_size == 0) {
     return ERR_INVALID_ARG;
   }
 
   char facility_dir[256] = {0};
-  int result = osi_get_facility_config_dir(facility_dir, sizeof(facility_dir));
+  int  result            = osi_get_facility_config_dir(facility_dir, sizeof(facility_dir));
   if (result != SUCCESS) {
     return result;
   }
@@ -324,7 +728,8 @@ static int osi_find_facility_config_path(const char* facility_name, int create_i
       }
 
       char existing_name[128] = {0};
-      int copy_result = osi_copy_config_value(file_content, "name", existing_name, sizeof(existing_name));
+      int  copy_result =
+          osi_copy_config_value(file_content, "name", existing_name, sizeof(existing_name));
       free((void*)file_content);
 
       if (copy_result == SUCCESS && strcmp(existing_name, facility_name) == 0) {
@@ -347,15 +752,14 @@ static int osi_find_facility_config_path(const char* facility_name, int create_i
   return SUCCESS;
 }
 
-static int osi_collect_facility_names(char** body_out)
-{
+static int osi_collect_facility_names(char** body_out) {
   if (!body_out) {
     return ERR_INVALID_ARG;
   }
 
-  *body_out = NULL;
+  *body_out              = NULL;
   char facility_dir[256] = {0};
-  int dir_result = osi_get_facility_config_dir(facility_dir, sizeof(facility_dir));
+  int  dir_result        = osi_get_facility_config_dir(facility_dir, sizeof(facility_dir));
   if (dir_result != SUCCESS) {
     return dir_result;
   }
@@ -365,10 +769,10 @@ static int osi_collect_facility_names(char** body_out)
     return ERR_NOT_FOUND;
   }
 
-  char* body = NULL;
-  size_t used = 0;
-  size_t capacity = 0;
-  struct dirent* entry = NULL;
+  char*          body     = NULL;
+  size_t         used     = 0;
+  size_t         capacity = 0;
+  struct dirent* entry    = NULL;
 
   while ((entry = readdir(directory)) != NULL) {
     if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0 ||
@@ -390,14 +794,16 @@ static int osi_collect_facility_names(char** body_out)
     }
 
     char facility_name[128] = {0};
-    int copy_result = osi_copy_config_value(file_content, "name", facility_name, sizeof(facility_name));
+    int  copy_result =
+        osi_copy_config_value(file_content, "name", facility_name, sizeof(facility_name));
     free((void*)file_content);
 
     if (copy_result != SUCCESS || facility_name[0] == '\0') {
       continue;
     }
 
-    int append_result = osi_append_text(&body, &used, &capacity, facility_name, strlen(facility_name));
+    int append_result =
+        osi_append_text(&body, &used, &capacity, facility_name, strlen(facility_name));
     if (append_result != SUCCESS) {
       free(body);
       closedir(directory);
@@ -425,15 +831,14 @@ static int osi_collect_facility_names(char** body_out)
   return SUCCESS;
 }
 
-static int osi_load_template_config(char** template_out)
-{
+static int osi_load_template_config(char** template_out) {
   if (!template_out) {
     return ERR_INVALID_ARG;
   }
 
-  *template_out = NULL;
+  *template_out          = NULL;
   char facility_dir[256] = {0};
-  int dir_result = osi_get_facility_config_dir(facility_dir, sizeof(facility_dir));
+  int  dir_result        = osi_get_facility_config_dir(facility_dir, sizeof(facility_dir));
   if (dir_result != SUCCESS) {
     return dir_result;
   }
@@ -459,10 +864,9 @@ typedef struct
 } Config_Update;
 
 static Config_Update osi_config_updates[OPTI_CONFIG_EDITABLE_COUNT] = {
-    {"name", "", 0, 0},           {"currency", "", 0, 0},
-    {"price_class", "", 0, 0},    {"latitude", "", 0, 0},
-    {"longitude", "", 0, 0},      {"panel.tilt", "", 0, 0},
-    {"panel.azimuth", "", 0, 0},  {"panel.m2_size", "", 0, 0},
+    {"name", "", 0, 0},          {"currency", "", 0, 0},      {"price_class", "", 0, 0},
+    {"latitude", "", 0, 0},      {"longitude", "", 0, 0},     {"panel.tilt", "", 0, 0},
+    {"panel.azimuth", "", 0, 0}, {"panel.m2_size", "", 0, 0},
 };
 
 static void osi_reset_config_updates(void) {
@@ -566,10 +970,10 @@ static int osi_parse_config_updates(const char* body, int body_len, char* filena
     update->has_value        = 1;
 
     if (strcmp(update->key, "name") == 0) {
-      const char* prefix = "/etc/maestro/facility/";
+      const char* prefix  = "/etc/maestro/facility/";
       const char* postfix = ".conf";
-      size_t len = value_len + strlen(prefix) + strlen(postfix) + 1;
-      filename = malloc(len);
+      size_t      len     = value_len + strlen(prefix) + strlen(postfix) + 1;
+      filename            = malloc(len);
       if (filename) {
         snprintf(filename, len, "%s%s%s", prefix, update->value, postfix);
         filename[len] = '\0';
@@ -619,7 +1023,7 @@ static int osi_merge_config_updates(const char* existing_config, char** merged_c
     int res;
     if (update && update->has_value) {
       res = osi_append_text(&merged, &merged_used, &merged_capacity, update->key,
-      strlen(update->key));
+                            strlen(update->key));
       if (res != SUCCESS) {
         free(merged);
         return res;
@@ -730,6 +1134,66 @@ int osi_get_overview(Osi_RequestCtx* _ctx) {
   return osi_set_response(_ctx->conn, 200, "application/json", body);
 }
 
+int osi_post_ingest(Osi_RequestCtx* _ctx) {
+  if (!_ctx || !_ctx->conn || !_ctx->conn->request) {
+    return ERR_INVALID_ARG;
+  }
+
+  int         body_len = 0;
+  const char* body     = osi_get_request_body(_ctx, &body_len);
+  if (!body || body_len <= 0) {
+    return osi_set_response(_ctx->conn, 400, "application/json",
+                            "{\"error\":\"meter reading body missing\"}");
+  }
+
+  Meter_Reading reading;
+  int           parse_result = osi_parse_meter_reading_json(body, body_len, &reading);
+  if (parse_result != SUCCESS) {
+    return osi_set_response(_ctx->conn, 400, "application/json",
+                            "{\"error\":\"invalid meter reading\"}");
+  }
+
+  osi_latest_meter_reading             = reading;
+  osi_latest_meter_reading_received_at = time(NULL);
+  osi_has_latest_meter_reading         = 1;
+
+  return osi_set_response(_ctx->conn, 200, "application/json", "{\"status\":\"ok\"}");
+}
+
+int osi_get_power_current(Osi_RequestCtx* _ctx) {
+  if (!_ctx || !_ctx->conn || !_ctx->conn->request) {
+    return ERR_INVALID_ARG;
+  }
+
+  if (!osi_has_latest_meter_reading) {
+    return osi_set_response(_ctx->conn, 404, "application/json",
+                            "{\"error\":\"no meter reading available\"}");
+  }
+
+  char* body = NULL;
+  int   res  = osi_meter_reading_to_json(&osi_latest_meter_reading,
+                                         osi_latest_meter_reading_received_at, &body);
+  if (res != SUCCESS) {
+    free(body);
+    return res;
+  }
+
+  res = osi_set_response(_ctx->conn, 200, "application/json", body);
+  free(body);
+  return res;
+}
+
+int osi_get_display_current(Osi_RequestCtx* _ctx) { return osi_get_power_current(_ctx); }
+
+int osi_get_display_graph_hour(Osi_RequestCtx* _ctx) {
+  if (!_ctx || !_ctx->conn || !_ctx->conn->request) {
+    return ERR_INVALID_ARG;
+  }
+
+  return osi_set_response(_ctx->conn, 501, "application/json",
+                          "{\"error\":\"hour graph history not implemented\"}");
+}
+
 int osi_get_average_daily(Osi_RequestCtx* _ctx) {
   if (!_ctx || !_ctx->conn || !_ctx->conn->request) {
     return ERR_INVALID_ARG;
@@ -837,15 +1301,16 @@ int osi_get_config(Osi_RequestCtx* _ctx) {
     return ERR_INVALID_ARG;
   }
 
-  HTTP_Request* req = _ctx->conn->request;
-  const char* facility_name = osi_get_query_param(req, "name");
+  HTTP_Request* req           = _ctx->conn->request;
+  const char*   facility_name = osi_get_query_param(req, "name");
   if (!facility_name || facility_name[0] == '\0') {
     return osi_set_response(_ctx->conn, 400, "application/json",
                             "{\"error\":\"Missing parameter for 'name'\"}");
   }
 
   char facility_path[512] = {0};
-  int path_result = osi_find_facility_config_path(facility_name, 0, facility_path, sizeof(facility_path));
+  int  path_result =
+      osi_find_facility_config_path(facility_name, 0, facility_path, sizeof(facility_path));
   if (path_result != SUCCESS) {
     return osi_set_response(_ctx->conn, 404, "application/json",
                             "{\"error\":\"facility config not found\"}");
@@ -864,14 +1329,13 @@ int osi_get_config(Osi_RequestCtx* _ctx) {
   return res;
 }
 
-int osi_get_facilities(Osi_RequestCtx* _ctx)
-{
+int osi_get_facilities(Osi_RequestCtx* _ctx) {
   if (!_ctx || !_ctx->conn || !_ctx->conn->request) {
     return ERR_INVALID_ARG;
   }
 
-  char* body = NULL;
-  int result = osi_collect_facility_names(&body);
+  char* body   = NULL;
+  int   result = osi_collect_facility_names(&body);
   if (result != SUCCESS) {
     return osi_set_response(_ctx->conn, 503, "application/json",
                             "{\"error\":\"failed to list facilities\"}");
@@ -882,29 +1346,28 @@ int osi_get_facilities(Osi_RequestCtx* _ctx)
   return res;
 }
 
-int osi_post_config(Osi_RequestCtx* _ctx)
-{
+int osi_post_config(Osi_RequestCtx* _ctx) {
   if (!_ctx || !_ctx->conn || !_ctx->conn->request) {
     return ERR_INVALID_ARG;
   }
 
-  HTTP_Request* req = _ctx->conn->request;
-  const char* facility_name = osi_get_query_param(req, "name");
+  HTTP_Request* req           = _ctx->conn->request;
+  const char*   facility_name = osi_get_query_param(req, "name");
   if (!facility_name || facility_name[0] == '\0') {
     return osi_set_response(_ctx->conn, 400, "application/json",
                             "{\"error\":\"Missing parameter for 'name'\"}");
   }
 
-  int body_len = 0;
-  const char* body = osi_get_request_body(_ctx, &body_len);
+  int         body_len = 0;
+  const char* body     = osi_get_request_body(_ctx, &body_len);
   if (!body || body_len <= 0) {
     printf("BAD REQUEST !body || body_len <= 0");
     return osi_set_response(_ctx->conn, 400, "application/json",
                             "{\"error\":\"config body missing\"}");
   }
 
-  char* file = NULL;
-  int parse_result = osi_parse_config_updates(body, body_len, file);
+  char* file         = NULL;
+  int   parse_result = osi_parse_config_updates(body, body_len, file);
   if (parse_result == ERR_INVALID_ARG) {
     printf("parse_result == ERR_INVALID_ARG");
     return osi_set_response(_ctx->conn, 400, "application/json",
@@ -916,25 +1379,26 @@ int osi_post_config(Osi_RequestCtx* _ctx)
   }
 
   char facility_path[512] = {0};
-  int path_result = osi_find_facility_config_path(facility_name, 1, facility_path, sizeof(facility_path));
+  int  path_result =
+      osi_find_facility_config_path(facility_name, 1, facility_path, sizeof(facility_path));
   if (path_result != SUCCESS) {
     return osi_set_response(_ctx->conn, 503, "application/json",
                             "{\"error\":\"failed to resolve facility config path\"}");
   }
 
-  const char* existing_config = read_file_to_string(facility_path);
-  char* template_config = NULL;
-  int used_blank_config = 0;
+  const char* existing_config   = read_file_to_string(facility_path);
+  char*       template_config   = NULL;
+  int         used_blank_config = 0;
   if (!existing_config) {
     if (osi_load_template_config(&template_config) == SUCCESS && template_config) {
       existing_config = template_config;
     } else {
-      existing_config = osi_blank_facility_config;
+      existing_config   = osi_blank_facility_config;
       used_blank_config = 1;
     }
   }
   char* merged_config = NULL;
-  int merge_result = osi_merge_config_updates(existing_config, &merged_config);
+  int   merge_result  = osi_merge_config_updates(existing_config, &merged_config);
   if (template_config) {
     free(template_config);
   } else if (existing_config != NULL && !used_blank_config) {
@@ -977,7 +1441,8 @@ int osi_post_config(Osi_RequestCtx* _ctx)
                             "{\"error\":\"facility config saved but calculation trigger failed\"}");
   }
 
-  return osi_set_response(_ctx->conn, 200, "application/json", "{\"status\":\"facility config saved\"}");
+  return osi_set_response(_ctx->conn, 200, "application/json",
+                          "{\"status\":\"facility config saved\"}");
 }
 
 int osi_recalc(Osi_RequestCtx* _ctx) {
@@ -1004,8 +1469,7 @@ int osi_recalc(Osi_RequestCtx* _ctx) {
   return osi_set_response(_ctx->conn, 200, "application/json", body);
 }
 
-int osi_kill(Osi_RequestCtx* _ctx)
-{
+int osi_kill(Osi_RequestCtx* _ctx) {
 
   if (!_ctx) {
     return ERR_INVALID_ARG;
