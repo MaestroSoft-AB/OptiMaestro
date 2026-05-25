@@ -1,12 +1,15 @@
 #include "opti/opti_server.h"
 #include "opti/opti_instance.h"
+#include <maestroutils/error.h>
 #include <maestroutils/file_utils.h>
+#include <string.h>
 
 /* -----------------Internal Functions----------------- */
 
 void opti_s_taskwork(void* _context, uint64_t _montime);
 int  opti_s_on_http_connection(void* _context, HTTP_Server_Connection* _Connection);
 int  opti_s_on_instance_finish(void* _context, void* _instance);
+int  opti_s_init_meter_store(Opti_Server* _Server);
 
 OptiServerState opti_server_connection_handover(Opti_Server* _Server);
 /* ---------------------------------------------------- */
@@ -22,6 +25,7 @@ int opti_s_init(Opti_Server* _Server) {
   _Server->task            = NULL;
   _Server->state           = OPTI_SERVER_INIT;
   _Server->http_connection = NULL;
+  memset(&_Server->meter_store, 0, sizeof(Meter_Reading_Store));
 
   int result = http_server_init(&_Server->http_server, opti_s_on_http_connection, _Server);
   if (result != SUCCESS) {
@@ -52,6 +56,15 @@ int opti_s_init(Opti_Server* _Server) {
 
   create_directory_if_not_exists(DATA_DIR);
 
+  result = opti_s_init_meter_store(_Server);
+  if (result != SUCCESS) {
+    linked_list_destroy(&_Server->instances);
+    http_server_dispose(&_Server->http_server);
+    scheduler_destroy_task(_Server->task);
+    _Server->state = OPTI_SERVER_ERROR;
+    return result;
+  }
+
   return SUCCESS;
 }
 
@@ -73,6 +86,32 @@ int opti_s_init_ptr(Opti_Server** _Server_Ptr) {
   }
 
   *_Server_Ptr = Server;
+
+  return SUCCESS;
+}
+
+int opti_s_init_meter_store(Opti_Server* _Server) {
+  if (!_Server) {
+    return ERR_INVALID_ARG;
+  }
+
+  create_directory_if_not_exists(METER_READING_STORE_DEFAULT_DIR);
+
+  int res = meter_store_init(&_Server->meter_store);
+  if (res != SUCCESS) {
+    return res;
+  }
+
+  res = meter_store_open(&_Server->meter_store, METER_READING_STORE_DEFAULT_DB_PATH, false);
+  if (res != SUCCESS) {
+    return res;
+  }
+
+  res = meter_store_init_schema(&_Server->meter_store);
+  if (res != SUCCESS) {
+    meter_store_dispose(&_Server->meter_store);
+    return res;
+  }
 
   return SUCCESS;
 }
@@ -200,4 +239,6 @@ void opti_s_dispose(Opti_Server* _Server) {
   if (_Server->task) {
     scheduler_destroy_task(_Server->task);
   }
+
+  meter_store_dispose(&_Server->meter_store);
 }

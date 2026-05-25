@@ -17,11 +17,10 @@
 
 // #define DATA_DIR "/var/lib/maestro" // TODO: Move to conf
 
-void optimizer_run_ech(void* _ech_conf)
-{
-  int res;
+void optimizer_run_ech(void* _ech_conf) {
+  int       res;
   ECH_Conf* Conf = (ECH_Conf*)_ech_conf;
-  ECH E;
+  ECH       E;
 
   res = ech_init(&E, Conf);
   if (res != 0) {
@@ -39,11 +38,10 @@ void optimizer_run_ech(void* _ech_conf)
   ech_dispose(&E);
 }
 
-void optimizer_run_wch(void* _wch_conf)
-{
-  int res;
+void optimizer_run_wch(void* _wch_conf) {
+  int       res;
   WCH_Conf* Conf = (WCH_Conf*)_wch_conf;
-  WCH W;
+  WCH       W;
 
   res = wch_init(&W, Conf);
   if (res != 0) {
@@ -63,8 +61,7 @@ void optimizer_run_wch(void* _wch_conf)
 
 /* ---------------------------------------------------------------- */
 
-int optimizer_init(Optimizer* _O)
-{
+int optimizer_init(Optimizer* _O) {
   int res;
 
 #ifdef CURL_GLOBAL_DEFAULT
@@ -86,11 +83,10 @@ int optimizer_init(Optimizer* _O)
   return SUCCESS;
 }
 
-int optimizer_config_set(Optimizer_Config* _OC)
-{
+int optimizer_config_set(Optimizer_Config* _OC) {
   facility_dispose(_OC->facility_configs, _OC->facility_count);
   _OC->facility_configs = NULL;
-  _OC->facility_count = 0;
+  _OC->facility_count   = 0;
 
   if (_OC->data_dir)
     free(_OC->data_dir);
@@ -99,23 +95,18 @@ int optimizer_config_set(Optimizer_Config* _OC)
   if (_OC->facility_dir)
     free(_OC->facility_dir);
 
-  const char* keys[] = {
-    "sys.max_threads",
-    "data.dir",
-    "data.calcs.dir",
-    "facility.conf.dir"
-  };
+  const char* keys[] = {"sys.max_threads", "data.dir", "data.calcs.dir", "facility.conf.dir"};
 
-  char conf_max_threads[64] = {0};
-  char conf_data_dir[64] = {0};
+  char conf_max_threads[64]    = {0};
+  char conf_data_dir[64]       = {0};
   char conf_data_calcs_dir[64] = {0};
-  char conf_facility_dir[64] = {0};
+  char conf_facility_dir[64]   = {0};
 
   char* values[] = {
-    conf_max_threads,
-    conf_data_dir,
-    conf_data_calcs_dir, 
-    conf_facility_dir,
+      conf_max_threads,
+      conf_data_dir,
+      conf_data_calcs_dir,
+      conf_facility_dir,
   };
 
   int res = config_get_value(OPTIMIZER_CONF_PATH, keys, values, 64, 4);
@@ -131,7 +122,7 @@ int optimizer_config_set(Optimizer_Config* _OC)
 
   size_t path_len;
   if (strcmp(conf_data_dir, "") != 0) {
-    path_len = strlen(conf_data_dir);
+    path_len      = strlen(conf_data_dir);
     _OC->data_dir = malloc(path_len + 1);
     if (!_OC->data_dir) {
       LOG_ERROR("malloc");
@@ -141,7 +132,7 @@ int optimizer_config_set(Optimizer_Config* _OC)
     _OC->data_dir[path_len] = '\0';
   }
   if (strcmp(conf_data_calcs_dir, "") != 0) {
-    path_len = strlen(conf_data_calcs_dir);
+    path_len            = strlen(conf_data_calcs_dir);
     _OC->data_calcs_dir = malloc(path_len + 1);
     if (!_OC->data_calcs_dir) {
       LOG_ERROR("malloc");
@@ -151,7 +142,7 @@ int optimizer_config_set(Optimizer_Config* _OC)
     _OC->data_calcs_dir[path_len] = '\0';
   }
   if (strcmp(conf_facility_dir, "") != 0) {
-    path_len = strlen(conf_facility_dir);
+    path_len          = strlen(conf_facility_dir);
     _OC->facility_dir = malloc(path_len + 1);
     if (!_OC->facility_dir) {
       LOG_ERROR("malloc");
@@ -171,9 +162,8 @@ int optimizer_config_set(Optimizer_Config* _OC)
   return SUCCESS;
 }
 
-int optimizer_run(Optimizer* _O)
-{
-  int i = 0; 
+int optimizer_run(Optimizer* _O) {
+  int i = 0;
   int res;
 
   char db_path[512];
@@ -205,21 +195,21 @@ int optimizer_run(Optimizer* _O)
   ECH_Conf ECH_Config[4] = {0}; // One per each price_class
   for (i = 0; i < 4; i++) {
     ECH_Config[i].price_class = i;
-    ECH_Config[i].currency = SPOT_SEK; // Only have support for SEK
-    ECH_Config[i].data_dir = _O->config.data_dir;
-    ECH_Config[i].sqlhelper = &_O->sqlhelper;
+    ECH_Config[i].currency    = SPOT_SEK; // Only have support for SEK
+    ECH_Config[i].data_dir    = _O->config.data_dir;
+    ECH_Config[i].sqlhelper   = &_O->sqlhelper;
   }
 
   /* Start electricity cache handler threads */
   for (i = 0; i < 4; i++) {
     TP_Task Task = {optimizer_run_ech, &ECH_Config[i], NULL, NULL};
-    res = tp_task_add(_O->thread_pool, &Task);
+    res          = tp_task_add(_O->thread_pool, &Task);
     if (res != 0)
       LOG_ERROR("tp_task_add");
   }
 
   /* Weather gets two runs per facility: forecast and current */
-  /* TODO: Find a way to not run weather less times, meteo gets a lot of requests 
+  /* TODO: Find a way to not run weather less times, meteo gets a lot of requests
    * - maybe check if last saved weather time already is same or more than last electricity time
    * no need to run if we don't have enough electricity data anyway */
   WCH_Conf* WCH_Confs = calloc(1, sizeof(WCH_Conf) * _O->config.facility_count * 2);
@@ -235,43 +225,41 @@ int optimizer_run(Optimizer* _O)
 
     /* Forecast weather run */
     WCH_Confs[j].sqlhelper = &_O->sqlhelper;
-    WCH_Confs[j].forecast = true;
-    WCH_Confs[j].latitude = _O->config.facility_configs[i]->lat;
+    WCH_Confs[j].forecast  = true;
+    WCH_Confs[j].latitude  = _O->config.facility_configs[i]->lat;
     WCH_Confs[j].longitude = _O->config.facility_configs[i]->lon;
 
-    /* Facility might not have solarpanels, set to zero if so 
+    /* Facility might not have solarpanels, set to zero if so
      * TODO: differentiate weather that has panels and that don't in WCH as well */
     if (_O->config.facility_configs[i]->panel != NULL) {
       WCH_Confs[j].panel_azimuth = _O->config.facility_configs[i]->panel->azimuth;
-      WCH_Confs[j].panel_tilt = _O->config.facility_configs[i]->panel->tilt;
-    }
-    else {
+      WCH_Confs[j].panel_tilt    = _O->config.facility_configs[i]->panel->tilt;
+    } else {
       WCH_Confs[j].panel_azimuth = 0;
-      WCH_Confs[j].panel_tilt = 0;
+      WCH_Confs[j].panel_tilt    = 0;
     }
 
     /* Current weather run */
     WCH_Confs[j + 1].sqlhelper = &_O->sqlhelper;
-    WCH_Confs[j + 1].forecast = false;
-    WCH_Confs[j + 1].latitude = _O->config.facility_configs[i]->lat;
+    WCH_Confs[j + 1].forecast  = false;
+    WCH_Confs[j + 1].latitude  = _O->config.facility_configs[i]->lat;
     WCH_Confs[j + 1].longitude = _O->config.facility_configs[i]->lon;
 
-    /* Facility might not have solarpanels, set to zero if so 
+    /* Facility might not have solarpanels, set to zero if so
      * TODO: differentiate weather that has panels and that don't in WCH as well */
     if (_O->config.facility_configs[i]->panel != NULL) {
       WCH_Confs[j + 1].panel_azimuth = _O->config.facility_configs[i]->panel->azimuth;
-      WCH_Confs[j + 1].panel_tilt = _O->config.facility_configs[i]->panel->tilt;
-    }
-    else {
+      WCH_Confs[j + 1].panel_tilt    = _O->config.facility_configs[i]->panel->tilt;
+    } else {
       WCH_Confs[j + 1].panel_azimuth = 0;
-      WCH_Confs[j + 1].panel_tilt = 0;
+      WCH_Confs[j + 1].panel_tilt    = 0;
     }
   }
 
   /* Start weather cache handler threads */
   for (i = 0; i < (int)(_O->config.facility_count * 2); i++) {
     TP_Task Task = {optimizer_run_wch, &WCH_Confs[i], NULL, NULL};
-    res = tp_task_add(_O->thread_pool, &Task);
+    res          = tp_task_add(_O->thread_pool, &Task);
     if (res != 0)
       LOG_ERROR("tp_task_add");
   }
@@ -284,12 +272,12 @@ int optimizer_run(Optimizer* _O)
 
   /* Run calculator */
   Calc_Args C_Args = {
-    .calcs_dir        = _O->config.data_calcs_dir,
-    .data_dir         = _O->config.data_dir,
-    .facility_configs = _O->config.facility_configs,
-    .facility_count   = _O->config.facility_count,
-    .max_threads      = _O->config.max_threads,
-    .sqlhelper        = &_O->sqlhelper,
+      .calcs_dir        = _O->config.data_calcs_dir,
+      .data_dir         = _O->config.data_dir,
+      .facility_configs = _O->config.facility_configs,
+      .facility_count   = _O->config.facility_count,
+      .max_threads      = _O->config.max_threads,
+      .sqlhelper        = &_O->sqlhelper,
   };
 
   if (calc_create_reports(&C_Args) != SUCCESS) {
@@ -301,8 +289,7 @@ int optimizer_run(Optimizer* _O)
   return SUCCESS;
 }
 
-void optimizer_dispose(Optimizer* _O)
-{
+void optimizer_dispose(Optimizer* _O) {
   if (_O->thread_pool != NULL) {
     tp_wait(_O->thread_pool);
     tp_dispose(_O->thread_pool);

@@ -1,4 +1,5 @@
 #include "opti/opti_instance.h"
+#include "opti/opti_server.h"
 #include "data/calc_name.h"
 #include "data/meter_reading.h"
 #include "maestromodules/http_parser.h"
@@ -1156,6 +1157,16 @@ int osi_post_ingest(Osi_RequestCtx* _ctx) {
   osi_latest_meter_reading             = reading;
   osi_latest_meter_reading_received_at = time(NULL);
   osi_has_latest_meter_reading         = 1;
+
+  Opti_Server* server = (Opti_Server*)_ctx->ctx;
+  if (!server) {
+    return ERR_INVALID_ARG;
+  }
+
+  int store_result = meter_store_insert_reading(&server->meter_store, &reading);
+  if (store_result != SUCCESS) {
+    return store_result;
+  }
 
   return osi_set_response(_ctx->conn, 200, "application/json", "{\"status\":\"ok\"}");
 }

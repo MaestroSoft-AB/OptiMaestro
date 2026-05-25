@@ -6,6 +6,7 @@
 /* ******************************************************************* */
 
 #include "http/http_server.h"
+#include "meter_reading_store.h"
 
 #define DATA_DIR "data/"
 
@@ -34,6 +35,7 @@ typedef struct
   Scheduler_Task* task;
   Linked_List* instances;
   OptiServerState state;
+  Meter_Reading_Store meter_store;
 
 } Opti_Server;
 
