@@ -670,6 +670,27 @@ static int osi_get_facility_config_dir(char* dir_out, size_t dir_out_size) {
   return SUCCESS;
 }
 
+static int osi_get_calcs_dir(char* dir_out, size_t dir_out_size) {
+  if (!dir_out || dir_out_size == 0) {
+    return ERR_INVALID_ARG;
+  }
+
+  const char* optimizer_config = read_file_to_string(OPTI_CONFIG_PATH);
+  if (!optimizer_config) {
+    snprintf(dir_out, dir_out_size, "%s", CALCS_DEFAULT_DIRECTORY);
+    return SUCCESS;
+  }
+
+  int result = osi_copy_config_value(optimizer_config, "data.calcs.dir", dir_out, dir_out_size);
+  free((void*)optimizer_config);
+
+  if (result != SUCCESS || dir_out[0] == '\0') {
+    snprintf(dir_out, dir_out_size, "%s", CALCS_DEFAULT_DIRECTORY);
+  }
+
+  return SUCCESS;
+}
+
 static void osi_build_facility_filename(const char* facility_name, char* filename_out,
                                         size_t filename_out_size) {
   if (!facility_name || !filename_out || filename_out_size == 0) {
@@ -751,6 +772,56 @@ static int osi_find_facility_config_path(const char* facility_name, int create_i
   osi_build_facility_filename(facility_name, filename, sizeof(filename));
   snprintf(path_out, path_out_size, "%s/%s", facility_dir, filename);
   return SUCCESS;
+}
+
+static int osi_get_default_facility_name(char* name_out, size_t name_out_size) {
+  if (!name_out || name_out_size == 0) {
+    return ERR_INVALID_ARG;
+  }
+
+  name_out[0]            = '\0';
+  char facility_dir[256] = {0};
+  int  dir_result        = osi_get_facility_config_dir(facility_dir, sizeof(facility_dir));
+  if (dir_result != SUCCESS) {
+    return dir_result;
+  }
+
+  DIR* directory = opendir(facility_dir);
+  if (!directory) {
+    return ERR_NOT_FOUND;
+  }
+
+  struct dirent* entry = NULL;
+  while ((entry = readdir(directory)) != NULL) {
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0 ||
+        strcmp(entry->d_name, "example.conf") == 0) {
+      continue;
+    }
+
+    size_t name_len = strlen(entry->d_name);
+    if (name_len < 5 || strcmp(entry->d_name + name_len - 5, ".conf") != 0) {
+      continue;
+    }
+
+    char filepath[512] = {0};
+    snprintf(filepath, sizeof(filepath), "%s/%s", facility_dir, entry->d_name);
+
+    const char* file_content = read_file_to_string(filepath);
+    if (!file_content) {
+      continue;
+    }
+
+    int copy_result = osi_copy_config_value(file_content, "name", name_out, name_out_size);
+    free((void*)file_content);
+
+    if (copy_result == SUCCESS && name_out[0] != '\0') {
+      closedir(directory);
+      return SUCCESS;
+    }
+  }
+
+  closedir(directory);
+  return ERR_NOT_FOUND;
 }
 
 static int osi_collect_facility_names(char** body_out) {
@@ -1201,8 +1272,53 @@ int osi_get_display_graph_hour(Osi_RequestCtx* _ctx) {
     return ERR_INVALID_ARG;
   }
 
-  return osi_set_response(_ctx->conn, 501, "application/json",
-                          "{\"error\":\"hour graph history not implemented\"}");
+  HTTP_Request* req           = _ctx->conn->request;
+  const char*   facility_name = osi_get_query_param(req, "name");
+  char          default_name[128] = {0};
+
+  if (!facility_name || facility_name[0] == '\0') {
+    int default_result = osi_get_default_facility_name(default_name, sizeof(default_name));
+    if (default_result != SUCCESS) {
+      return osi_set_response(_ctx->conn, 404, "application/json",
+                              "{\"error\":\"no facility available\"}");
+    }
+    facility_name = default_name;
+  }
+
+  char calcs_dir[256] = {0};
+  int  dir_result     = osi_get_calcs_dir(calcs_dir, sizeof(calcs_dir));
+  if (dir_result != SUCCESS) {
+    return dir_result;
+  }
+
+  time_t    now = time(NULL);
+  struct tm tm  = *localtime(&now);
+
+  char date[11];
+  strftime(date, sizeof(date), "%Y-%m-%d", &tm);
+
+  char filename[512];
+  int  len = snprintf(filename, sizeof(filename), "%s/%s-Consumption_%s-display.json", calcs_dir,
+                      facility_name, date);
+  if (len < 0 || (size_t)len >= sizeof(filename)) {
+    return osi_set_response(_ctx->conn, 500, "application/json",
+                            "{\"error\":\"failed to format display graph filename\"}");
+  }
+
+  const char* file_content = read_file_to_string(filename);
+  if (!file_content) {
+    char response[256];
+    len = snprintf(response, sizeof(response), "{\"error\":\"display graph not available (%s)\"}",
+                   filename);
+    if (len < 0 || (size_t)len >= sizeof(response)) {
+      snprintf(response, sizeof(response), "{\"error\":\"display graph not available\"}");
+    }
+    return osi_set_response(_ctx->conn, 503, "application/json", response);
+  }
+
+  int res = osi_set_response(_ctx->conn, 200, "application/json", file_content);
+  free((void*)file_content);
+  return res;
 }
 
 int osi_get_average_daily(Osi_RequestCtx* _ctx) {

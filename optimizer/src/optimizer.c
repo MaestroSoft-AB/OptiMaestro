@@ -1,5 +1,6 @@
 #include "optimizer.h"
 #include "calculations.h"
+#include "consumption_analysis.h"
 #include "data/facility.h"
 #include "data/electricity_structs.h"
 #include "electricity_cache_handler.h"
@@ -283,6 +284,10 @@ int optimizer_run(Optimizer* _O) {
   if (calc_create_reports(&C_Args) != SUCCESS) {
     LOG_ERROR("calc_create_reports");
     return ERR_FATAL;
+  }
+
+  if (consumption_analysis_create_reports(&C_Args) != SUCCESS) {
+    LOG_WARN("consumption_analysis_create_reports");
   }
 
   sql_helper_dispose(&_O->sqlhelper);
