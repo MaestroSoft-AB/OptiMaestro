@@ -307,78 +307,6 @@ calc_results_create(Calc_Results* _Res, const Facility_Config* _F, const Electri
   return SUCCESS;
 }
 
-// static inline int calc_results_json_create(const Calc_Results* _Res, const char* _filename) {
-//   if (!_Res || !_Res->timestamps || !_Res->spot_prices || !_Res->spot_prices_cheapness ||
-//       !_Res->spot_prices_deviation)
-//     return ERR_INVALID_ARG;
-//
-//   cJSON* root = cJSON_CreateObject();
-//   if (!root)
-//     return ERR_JSON_PARSE;
-//
-//   int has_solar = (_Res->solar_gains && _Res->solar_gains_deviation);
-//
-//   cJSON_AddNumberToObject(root, "start", (double)_Res->timestamps[0]);
-//
-//   uint32_t step = 900;
-//   if (_Res->count > 1)
-//     step = (uint32_t)(_Res->timestamps[1] - _Res->timestamps[0]);
-//
-//   cJSON_AddNumberToObject(root, "step", step);
-//
-//   cJSON* prices    = cJSON_AddArrayToObject(root, "prices");
-//   cJSON* deviation = cJSON_AddArrayToObject(root, "deviation");
-//   cJSON* cheapness = cJSON_AddArrayToObject(root, "cheapness");
-//
-//   cJSON* solar     = NULL;
-//   cJSON* solar_dev = NULL;
-//
-//   if (has_solar) {
-//     solar     = cJSON_AddArrayToObject(root, "solar");
-//     solar_dev = cJSON_AddArrayToObject(root, "solar_dev");
-//   }
-//
-//   for (unsigned int i = 0; i < _Res->count; i++) {
-//     int price_scaled = (int)lroundf(_Res->spot_prices[i] * 1000.0f);
-//
-//     int deviation_scaled = (int)lroundf(_Res->spot_prices_deviation[i]);
-//
-//     int cheapness_value = (int)_Res->spot_prices_cheapness[i];
-//
-//     cJSON_AddItemToArray(prices, cJSON_CreateNumber(price_scaled));
-//     cJSON_AddItemToArray(deviation, cJSON_CreateNumber(deviation_scaled));
-//     cJSON_AddItemToArray(cheapness, cJSON_CreateNumber(cheapness_value));
-//
-//     if (has_solar) {
-//       int solar_scaled = (int)lroundf(_Res->solar_gains[i] * 1000.0f);
-//
-//       int solar_dev_scaled = (int)lroundf(_Res->solar_gains_deviation[i]);
-//
-//       cJSON_AddItemToArray(solar, cJSON_CreateNumber(solar_scaled));
-//       cJSON_AddItemToArray(solar_dev, cJSON_CreateNumber(solar_dev_scaled));
-//     }
-//   }
-//
-//   char* json_str = cJSON_PrintUnformatted(root);
-//   if (!json_str) {
-//     cJSON_Delete(root);
-//     return ERR_JSON_PARSE;
-//   }
-//
-//   pthread_mutex_lock(&mutex_global);
-//
-//   if (write_string_to_file(json_str, _filename) != 0)
-//     LOG_ERROR("Failed to write compact json to %s", _filename);
-//
-//   pthread_mutex_unlock(&mutex_global);
-//
-//   free(json_str);
-//   cJSON_Delete(root);
-//
-//   return SUCCESS;
-// }
-
-
 static inline int calc_results_json_create(const Calc_Results* _Res, const char* _filename) {
   if (!_Res || !_Res->timestamps || !_Res->spot_prices || !_Res->spot_prices_cheapness ||
       !_Res->spot_prices_deviation)
@@ -392,55 +320,46 @@ static inline int calc_results_json_create(const Calc_Results* _Res, const char*
     return ERR_JSON_PARSE;
   }
 
-  /* Meta root objects */
-  cJSON* Json_Meta = cJSON_CreateObject();
+  cJSON_AddNumberToObject(Json_Root, "start", (double)_Res->timestamps[0]);
 
-  cJSON_AddStringToObject(Json_Meta, "deviation_unit", "%");
-  cJSON_AddStringToObject(Json_Meta, "spot_unit", "kW");
-  cJSON_AddStringToObject(Json_Meta, "currency", "SEK");
-  cJSON_AddNumberToObject(Json_Meta, "cheapness_threshold_percent", _Res->cheapness_thresh * 100);
-  cJSON_AddNumberToObject(Json_Meta, "spot_price_average", _Res->spot_prices_avg);
+  unsigned int step = 900;
+  if (_Res->count > 1)
+    step = (unsigned int)(_Res->timestamps[1] - _Res->timestamps[0]);
+
+  cJSON_AddNumberToObject(Json_Root, "step", step);
+
+  cJSON* Json_Prices    = cJSON_AddArrayToObject(Json_Root, "prices");
+  cJSON* Json_Deviation = cJSON_AddArrayToObject(Json_Root, "deviation");
+  cJSON* Json_Cheapness = cJSON_AddArrayToObject(Json_Root, "cheapness");
+
+  cJSON* Json_Solar    = NULL;
+  cJSON* Json_SolarDev = NULL;
 
   if (_Res->solar_gains && _Res->solar_gains_deviation) {
-    cJSON_AddNumberToObject(Json_Meta, "solar_gains_average", _Res->solar_gains_avg);
+    Json_Solar    = cJSON_AddArrayToObject(Json_Root, "solar");
+    Json_SolarDev = cJSON_AddArrayToObject(Json_Root, "solar_dev");
   }
-  cJSON_AddNumberToObject(Json_Meta, "count", _Res->count);
 
-  cJSON_AddItemToObject(Json_Root, "meta", Json_Meta);
-
-  /* Array of main data */
-  cJSON* Json_Results = cJSON_AddArrayToObject(Json_Root, "results");
   for (unsigned int i = 0; i < _Res->count; i++) {
-    cJSON* Json_Result = cJSON_CreateObject();
+    cJSON_AddItemToArray(Json_Prices,
+                         cJSON_CreateNumber((int)lroundf(_Res->spot_prices[i] * 1000.0f)));
 
-    /* Timestamp */
-    const char* time_start = parse_epoch_to_iso_full_datetime_string(&_Res->timestamps[i], 1);
-    cJSON_AddStringToObject(Json_Result, "timestamp", time_start);
-    free((void*)time_start);
+    cJSON_AddItemToArray(Json_Deviation,
+                         cJSON_CreateNumber((int)lroundf(_Res->spot_prices_deviation[i])));
 
-    /* Spots */
-    cJSON_AddNumberToObject(Json_Result, "spot_price", _Res->spot_prices[i]);
-    cJSON_AddNumberToObject(Json_Result, "spot_price_deviation", _Res->spot_prices_deviation[i]);
+    cJSON_AddItemToArray(Json_Cheapness, cJSON_CreateNumber((int)_Res->spot_prices_cheapness[i]));
 
-    if (_Res->spot_prices_cheapness[i] == CHEAP)
-      cJSON_AddStringToObject(Json_Result, "spot_cheapness", "CHEAP");
-    else if (_Res->spot_prices_cheapness[i] == AVERAGE)
-      cJSON_AddStringToObject(Json_Result, "spot_cheapness", "AVERAGE");
-    else if (_Res->spot_prices_cheapness[i] == EXPENSIVE)
-      cJSON_AddStringToObject(Json_Result, "spot_cheapness", "EXPENSIVE");
+    if (Json_Solar && Json_SolarDev) {
+      cJSON_AddItemToArray(Json_Solar,
+                           cJSON_CreateNumber((int)lroundf(_Res->solar_gains[i] * 1000.0f)));
 
-    /* Solar */
-    if (_Res->solar_gains && _Res->solar_gains_deviation) {
-      cJSON_AddNumberToObject(Json_Result, "solar_gains", _Res->solar_gains[i]);
-      cJSON_AddNumberToObject(Json_Result, "solar_gains_deviation", _Res->solar_gains_deviation[i]);
+      cJSON_AddItemToArray(Json_SolarDev,
+                           cJSON_CreateNumber((int)lroundf(_Res->solar_gains_deviation[i])));
     }
-
-    cJSON_AddItemToArray(Json_Results, Json_Result);
   }
 
-  char* json_str = cJSON_Print(Json_Root);
+  char* json_str = cJSON_PrintUnformatted(Json_Root);
 
-  /* Write to file */
   pthread_mutex_lock(&mutex_global);
   if (write_string_to_file(json_str, _filename) != 0)
     LOG_ERROR("Failed to write string \"%p\" to cache \"%p\"\n", json_str, _filename);
@@ -452,6 +371,83 @@ static inline int calc_results_json_create(const Calc_Results* _Res, const char*
 
   return SUCCESS;
 }
+
+
+//
+// static inline int calc_results_json_create(const Calc_Results* _Res, const char* _filename) {
+//   if (!_Res || !_Res->timestamps || !_Res->spot_prices || !_Res->spot_prices_cheapness ||
+//       !_Res->spot_prices_deviation)
+//     return ERR_INVALID_ARG;
+//
+//   cJSON* Json_Root = cJSON_CreateObject();
+//   if (Json_Root == NULL) {
+//     const char* err = cJSON_GetErrorPtr();
+//     if (err != NULL)
+//       LOG_ERROR("cJSON: %s\n", err);
+//     return ERR_JSON_PARSE;
+//   }
+//
+//   /* Meta root objects */
+//   cJSON* Json_Meta = cJSON_CreateObject();
+//
+//   cJSON_AddStringToObject(Json_Meta, "deviation_unit", "%");
+//   cJSON_AddStringToObject(Json_Meta, "spot_unit", "kW");
+//   cJSON_AddStringToObject(Json_Meta, "currency", "SEK");
+//   cJSON_AddNumberToObject(Json_Meta, "cheapness_threshold_percent", _Res->cheapness_thresh *
+//   100); cJSON_AddNumberToObject(Json_Meta, "spot_price_average", _Res->spot_prices_avg);
+//
+//   if (_Res->solar_gains && _Res->solar_gains_deviation) {
+//     cJSON_AddNumberToObject(Json_Meta, "solar_gains_average", _Res->solar_gains_avg);
+//   }
+//   cJSON_AddNumberToObject(Json_Meta, "count", _Res->count);
+//
+//   cJSON_AddItemToObject(Json_Root, "meta", Json_Meta);
+//
+//   /* Array of main data */
+//   cJSON* Json_Results = cJSON_AddArrayToObject(Json_Root, "results");
+//   for (unsigned int i = 0; i < _Res->count; i++) {
+//     cJSON* Json_Result = cJSON_CreateObject();
+//
+//     /* Timestamp */
+//     const char* time_start = parse_epoch_to_iso_full_datetime_string(&_Res->timestamps[i], 1);
+//     cJSON_AddStringToObject(Json_Result, "timestamp", time_start);
+//     free((void*)time_start);
+//
+//     /* Spots */
+//     cJSON_AddNumberToObject(Json_Result, "spot_price", _Res->spot_prices[i]);
+//     cJSON_AddNumberToObject(Json_Result, "spot_price_deviation", _Res->spot_prices_deviation[i]);
+//
+//     if (_Res->spot_prices_cheapness[i] == CHEAP)
+//       cJSON_AddStringToObject(Json_Result, "spot_cheapness", "CHEAP");
+//     else if (_Res->spot_prices_cheapness[i] == AVERAGE)
+//       cJSON_AddStringToObject(Json_Result, "spot_cheapness", "AVERAGE");
+//     else if (_Res->spot_prices_cheapness[i] == EXPENSIVE)
+//       cJSON_AddStringToObject(Json_Result, "spot_cheapness", "EXPENSIVE");
+//
+//     /* Solar */
+//     if (_Res->solar_gains && _Res->solar_gains_deviation) {
+//       cJSON_AddNumberToObject(Json_Result, "solar_gains", _Res->solar_gains[i]);
+//       cJSON_AddNumberToObject(Json_Result, "solar_gains_deviation",
+//       _Res->solar_gains_deviation[i]);
+//     }
+//
+//     cJSON_AddItemToArray(Json_Results, Json_Result);
+//   }
+//
+//   char* json_str = cJSON_Print(Json_Root);
+//
+//   /* Write to file */
+//   pthread_mutex_lock(&mutex_global);
+//   if (write_string_to_file(json_str, _filename) != 0)
+//     LOG_ERROR("Failed to write string \"%p\" to cache \"%p\"\n", json_str, _filename);
+//   pthread_mutex_unlock(&mutex_global);
+//
+//   free(json_str);
+//
+//   cJSON_Delete(Json_Root);
+//
+//   return SUCCESS;
+// }
 
 /* TODO: Fix concurrent writes, ie. better use of mutex lock */
 static inline int calc_summary_create(const Calc_Results* _Res, const Facility_Config* _F,
