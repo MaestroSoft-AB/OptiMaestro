@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #define PROFILE_BUCKETS 96
 #define PROFILE_HISTORY_DAYS 14
@@ -92,6 +93,7 @@ static int    write_txt_report(const Consumption_Profile* _P, const Electricity_
                                const Facility_Config* _F,
                                Tomorrow_Spot_Source _tomorrow_spot_source,
                                const char* _filename);
+static void   log_report_written(const char* _filename, int _existed);
 static int    bucket_for_time(time_t _ts);
 static double spot_at_bucket(const Electricity_Spots* _S, int _bucket);
 static int    best_price_window(const Electricity_Spots* _S, const Consumption_Profile* _P);
@@ -173,7 +175,11 @@ static int create_facility_report(const Calc_Args* _Args, const Facility_Config*
     return ERR_NO_MEMORY;
   }
 
+  int json_existed = access(json_name, F_OK) == 0;
   res = write_json_report(&profile, &today, &tomorrow, _F, tomorrow_spot_source, json_name);
+  if (res == SUCCESS) {
+    log_report_written(json_name, json_existed);
+  }
   free(json_name);
   if (res != SUCCESS) {
     if (tomorrow.prices != today.prices)
@@ -190,8 +196,12 @@ static int create_facility_report(const Calc_Args* _Args, const Facility_Config*
     return ERR_NO_MEMORY;
   }
 
+  int display_json_existed = access(display_json_name, F_OK) == 0;
   res = write_display_json_report(&profile, &today, &tomorrow, _F, tomorrow_spot_source, now,
                                   display_json_name);
+  if (res == SUCCESS) {
+    log_report_written(display_json_name, display_json_existed);
+  }
   free(display_json_name);
   if (res != SUCCESS) {
     if (tomorrow.prices != today.prices)
@@ -208,7 +218,11 @@ static int create_facility_report(const Calc_Args* _Args, const Facility_Config*
     return ERR_NO_MEMORY;
   }
 
+  int txt_existed = access(txt_name, F_OK) == 0;
   res = write_txt_report(&profile, &today, _F, tomorrow_spot_source, txt_name);
+  if (res == SUCCESS) {
+    log_report_written(txt_name, txt_existed);
+  }
   free(txt_name);
 
   if (tomorrow.prices != today.prices)
@@ -750,6 +764,10 @@ static int write_txt_report(const Consumption_Profile* _P, const Electricity_Spo
 
   fclose(file);
   return SUCCESS;
+}
+
+static void log_report_written(const char* _filename, int _existed) {
+  LOG_INFO("Consumption calculation %s %s", _filename, _existed ? "updated" : "created");
 }
 
 static int bucket_for_time(time_t _ts) {
