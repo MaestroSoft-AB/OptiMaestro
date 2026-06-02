@@ -20,7 +20,7 @@
 
 static const char* osi_blank_facility_config = "name=\n"
                                                "currency=SEK\n"
-                                               "price_class=3\n"
+                                               "energy_zone=3\n"
                                                "latitude=0\n"
                                                "longitude=0\n"
                                                "panel.tilt=0\n"
@@ -936,7 +936,7 @@ typedef struct
 } Config_Update;
 
 static Config_Update osi_config_updates[OPTI_CONFIG_EDITABLE_COUNT] = {
-    {"name", "", 0, 0},          {"currency", "", 0, 0},      {"price_class", "", 0, 0},
+    {"name", "", 0, 0},          {"currency", "", 0, 0},      {"energy_zone", "", 0, 0},
     {"latitude", "", 0, 0},      {"longitude", "", 0, 0},     {"panel.tilt", "", 0, 0},
     {"panel.azimuth", "", 0, 0}, {"panel.m2_size", "", 0, 0},
 };

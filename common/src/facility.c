@@ -21,7 +21,7 @@ static inline Facility_Config* facility_parse_config(const char* _filepath)
     "latitude",
     "longitude",
     "currency",
-    "price_class",
+    "energy_zone",
     "panel.tilt",
     "panel.azimuth",
     "panel.m2_size",
