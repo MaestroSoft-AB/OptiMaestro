@@ -15,7 +15,7 @@ static inline Facility_Config* facility_parse_config(const char* _filepath)
     return NULL;
   }
 
-  const int KEYS_COUNT = 8;
+  enum { KEYS_COUNT = 8 };
   const char* keys[] = {
     "name",
     "latitude",
@@ -27,8 +27,19 @@ static inline Facility_Config* facility_parse_config(const char* _filepath)
     "panel.m2_size",
   };
 
-  char* values[KEYS_COUNT];
+  char* values[KEYS_COUNT] = {0};
   int vals_found = config_values_get(_filepath, keys, values, KEYS_COUNT);
+
+  if (values[4] == NULL) {
+    const char* legacy_keys[] = {"price_class"};
+    char* legacy_values[1] = {0};
+    int legacy_found = config_values_get(_filepath, legacy_keys, legacy_values, 1);
+    if (legacy_found == 1 && legacy_values[0] != NULL) {
+      values[4] = legacy_values[0];
+      vals_found++;
+      LOG_WARN("Using deprecated facility config key price_class; rename it to energy_zone");
+    }
+  }
 
   /* First five keys are obligatory, MAKE THIS SAFER IF EDITING ABOVE CODE */
   for (int i = 0; i < 5; i++) {
@@ -36,6 +47,7 @@ static inline Facility_Config* facility_parse_config(const char* _filepath)
       LOG_ERROR("config_values_get - One or more obligatory fields not found! (found: %i)", 
           vals_found);
       config_values_dispose(values, KEYS_COUNT);
+      free(Conf);
       return NULL;
     }
   }
@@ -56,6 +68,7 @@ static inline Facility_Config* facility_parse_config(const char* _filepath)
   if (!Conf->name) {
     LOG_ERROR("malloc");
     config_values_dispose(values, KEYS_COUNT);
+    free(Conf);
     return NULL;
   }
   memcpy(Conf->name, conf_name, name_len);
@@ -79,9 +92,11 @@ static inline Facility_Config* facility_parse_config(const char* _filepath)
   /* If we got solar panel settings, we define it in config struct */
   if (conf_panel_tilt != NULL && conf_panel_azimuth != NULL && conf_panel_size != NULL) {
     Conf->panel = calloc(1, sizeof(Solar_Panel));
-    if (!Conf->name) {
+    if (!Conf->panel) {
       LOG_ERROR("calloc");
       config_values_dispose(values, KEYS_COUNT);
+      free(Conf->name);
+      free(Conf);
       return NULL;
     }
     int panel_tilt =    atoi(conf_panel_tilt);
@@ -106,6 +121,9 @@ Facility_Config** facility_get_configs(const char* _facility_dir, size_t* _facil
   if (!_facility_dir) 
     return NULL;
 
+  if (_facility_count)
+    *_facility_count = 0;
+
   Facility_Config** Conf_Array = malloc(sizeof(Facility_Config*));
   if (!Conf_Array) {
     LOG_ERROR("malloc");
@@ -123,14 +141,15 @@ Facility_Config** facility_get_configs(const char* _facility_dir, size_t* _facil
 
   for (int i = 0; i < (int)conf_files_count; i++) {
     /* Reallocate siz of struct array */
-    Conf_Array = realloc(Conf_Array, (sizeof(Facility_Config) * (i + 1)));
+    Conf_Array = realloc(Conf_Array, (sizeof(*Conf_Array) * (i + 1)));
     if (!Conf_Array) {
       LOG_ERROR("realloc");
       free(Conf_Array);
 
       /* Dispose of the rest of conf file names */
       for (int y = i; y < (int)conf_files_count; y++)
-        free(conf_files);
+        free(conf_files[y]);
+      free(conf_files);
 
       return NULL;
     }
@@ -141,11 +160,12 @@ Facility_Config** facility_get_configs(const char* _facility_dir, size_t* _facil
       "%s/%s", _facility_dir, conf_files[i]);
     if (path_len < 1) {
       LOG_ERROR("snprintf");
-      facility_dispose(Conf_Array, i+1);
+      facility_dispose(Conf_Array, *_facility_count);
 
       /* Dispose of the rest of conf name strings */
       for (int y = i; y < (int)conf_files_count; y++)
-        free(conf_files);
+        free(conf_files[y]);
+      free(conf_files);
 
       return NULL;
     }
@@ -154,11 +174,12 @@ Facility_Config** facility_get_configs(const char* _facility_dir, size_t* _facil
     Facility_Config* Conf = facility_parse_config(filepath);
     if (!Conf) {
       LOG_ERROR("facility_parse_config");
-      facility_dispose(Conf_Array, i+1);
+      facility_dispose(Conf_Array, *_facility_count);
 
       /* Dispose of the rest of conf name strings */
       for (int y = i; y < (int)conf_files_count; y++)
-        free(conf_files);
+        free(conf_files[y]);
+      free(conf_files);
 
       return NULL;
     }
