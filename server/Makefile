@@ -21,7 +21,8 @@ SRC_DIR := src
 SERVER_SRC := $(shell find -L $(SRC_DIR) -type f -name '*.c')
 COMMON_SRC := $(shell find -L ../common/src -type f -name '*.c')
 LIB_SRC := $(shell find -L ../lib/src -type f -name '*.c')
-SRC := $(SERVER_SRC) $(COMMON_SRC) $(LIB_SRC)
+OPTIMIZER_SRC := ../optimizer/src/sqlite_helpers.c
+SRC := $(SERVER_SRC) $(COMMON_SRC) $(LIB_SRC) $(OPTIMIZER_SRC)
 
 # ----- MaestroCore (submodule) -----
 MAESTRO_DIR ?= ../external/MaestroCore
@@ -35,6 +36,7 @@ CFLAGS := -std=c11 -MMD -MP -Wall -Wextra -Wfatal-errors -g \
 		-Iinclude \
 		-I../common/include \
 		-I../lib/include \
+		-I../optimizer/include \
 		-I$(MAESTRO_DIR)/modules/include \
 		-I$(MAESTRO_DIR)/utils/include
 
@@ -55,7 +57,8 @@ LIBS := -lcurl
 SERVER_OBJ := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/$(SRC_DIR)/%.o,$(SERVER_SRC))
 COMMON_OBJ := $(patsubst ../common/src/%.c,$(BUILD_DIR)/common/src/%.o,$(COMMON_SRC))
 LIB_OBJ := $(patsubst ../lib/src/%.c,$(BUILD_DIR)/lib/src/%.o,$(LIB_SRC))
-OBJ := $(SERVER_OBJ) $(COMMON_OBJ) $(LIB_OBJ)
+OPTIMIZER_OBJ := $(patsubst ../optimizer/src/%.c,$(BUILD_DIR)/optimizer/src/%.o,$(OPTIMIZER_SRC))
+OBJ := $(SERVER_OBJ) $(COMMON_OBJ) $(LIB_OBJ) $(OPTIMIZER_OBJ)
 
 # Dependency files (.d)
 DEP := $(OBJ:.o=.d)
@@ -99,6 +102,11 @@ $(BUILD_DIR)/common/src/%.o: ../common/src/%.c
 	@$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/lib/src/%.o: ../lib/src/%.c
+	@echo "Compiling $<..."
+	@mkdir -p $(dir $@)
+	@$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/optimizer/src/%.o: ../optimizer/src/%.c
 	@echo "Compiling $<..."
 	@mkdir -p $(dir $@)
 	@$(CC) $(CFLAGS) -c $< -o $@

@@ -7,6 +7,9 @@
 #include <string.h>
 
 #define SQL_CHECK_DB(_db, _msg) fprintf(stderr, "[SQL] %s: %s\n", _msg, sqlite3_errmsg(_db))
+#define SQL_HELPER_CACHE_RETENTION_DAYS 30
+
+static int sql_helper_prune_cache_locked(SqlHelper* _H, time_t _cutoff);
 
 int sql_helper_init(SqlHelper* _H) {
   if (!_H) {
@@ -318,6 +321,12 @@ int sql_helper_insert_weather(SqlHelper* _H, const Weather* _W, bool _forecast) 
   sqlite3_exec(_H->db, "COMMIT;", NULL, NULL, NULL);
   sqlite3_finalize(stmt);
 
+  int prune_res = sql_helper_prune_cache_locked(_H, time(NULL) - (SQL_HELPER_CACHE_RETENTION_DAYS * 86400));
+  if (prune_res != SUCCESS) {
+    pthread_mutex_unlock(&_H->mutex);
+    return prune_res;
+  }
+
   pthread_mutex_unlock(&_H->mutex);
 
   return SUCCESS;
@@ -499,6 +508,12 @@ int sql_helper_insert_spots(SqlHelper* _H, const Electricity_Spots* _spot) {
 
   sqlite3_exec(_H->db, "COMMIT;", NULL, NULL, NULL);
   sqlite3_finalize(stmt);
+
+  int prune_res = sql_helper_prune_cache_locked(_H, time(NULL) - (SQL_HELPER_CACHE_RETENTION_DAYS * 86400));
+  if (prune_res != SUCCESS) {
+    pthread_mutex_unlock(&_H->mutex);
+    return prune_res;
+  }
 
   pthread_mutex_unlock(&_H->mutex);
   return SUCCESS;
@@ -765,6 +780,41 @@ int sql_helper_read_latest_meter_reading(SqlHelper* _H, Meter_Reading* _out) {
 
   sqlite3_finalize(stmt);
   pthread_mutex_unlock(&_H->mutex);
+
+  return SUCCESS;
+}
+
+static int sql_helper_prune_cache_locked(SqlHelper* _H, time_t _cutoff) {
+  if (!_H || !_H->db) {
+    return ERR_INVALID_ARG;
+  }
+
+  const char* sql = "DELETE FROM electricity_spots WHERE time_start < ?;"
+                    "DELETE FROM weather_values WHERE timestamp < ?;"
+                    "DELETE FROM facility WHERE id NOT IN "
+                    "(SELECT DISTINCT facility_id FROM weather_values);";
+
+  sqlite3_stmt* stmt = NULL;
+  const char* tail = sql;
+  while (tail && *tail != '\0') {
+    if (sqlite3_prepare_v2(_H->db, tail, -1, &stmt, &tail) != SQLITE_OK) {
+      SQL_CHECK_DB(_H->db, "prepare cache prune failed");
+      return ERR_FATAL;
+    }
+    if (!stmt) {
+      continue;
+    }
+    if (sqlite3_bind_parameter_count(stmt) == 1) {
+      sqlite3_bind_int64(stmt, 1, (sqlite3_int64)_cutoff);
+    }
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+      SQL_CHECK_DB(_H->db, "step cache prune failed");
+      sqlite3_finalize(stmt);
+      return ERR_FATAL;
+    }
+    sqlite3_finalize(stmt);
+    stmt = NULL;
+  }
 
   return SUCCESS;
 }

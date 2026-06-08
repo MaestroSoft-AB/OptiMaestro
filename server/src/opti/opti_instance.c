@@ -1,9 +1,13 @@
 #include "opti/opti_instance.h"
 #include "opti/opti_server.h"
 #include "data/calc_name.h"
+#include "data/electricity_structs.h"
+#include "data/facility.h"
 #include "data/meter_reading.h"
+#include "data/weather_structs.h"
 #include "maestromodules/http_parser.h"
 #include "maestroutils/json_utils.h"
+#include "maestroutils/time_utils.h"
 #include "unix_domain_socket.h"
 #include <dirent.h>
 #include <maestroutils/file_utils.h>
@@ -29,6 +33,14 @@ static const char* osi_blank_facility_config = "name=\n"
 
 static int osi_append_text(char** buffer, size_t* used, size_t* capacity, const char* text,
                            size_t text_len);
+static int osi_get_facility_config_dir(char* dir_out, size_t dir_out_size);
+static int osi_parse_time_range(HTTP_Request* req, time_t* start_out, time_t* end_out);
+static int osi_load_request_facility(HTTP_Request* req, Facility_Config*** configs_out,
+                                     size_t* count_out, Facility_Config** facility_out);
+static int osi_weather_to_json(const Weather* weather, int forecast, char** body_out);
+static int osi_spots_to_json(const Electricity_Spots* spots, char** body_out);
+static void osi_weather_dispose(Weather* weather);
+static void osi_spots_dispose(Electricity_Spots* spots);
 static int osi_parse_meter_reading_json(const char* body, int body_len, Meter_Reading* reading);
 static int osi_meter_reading_to_json(const Meter_Reading* reading, time_t received_at,
                                      char** body_out);
@@ -56,11 +68,13 @@ int osi_post_config(Osi_RequestCtx* _ctx);
 int osi_recalc(Osi_RequestCtx* _ctx);
 int osi_kill(Osi_RequestCtx* _ctx);
 int osi_post_ingest(Osi_RequestCtx* _ctx);
+int osi_get_weather_cache(Osi_RequestCtx* _ctx);
+int osi_get_spot_cache(Osi_RequestCtx* _ctx);
 int osi_get_power_current(Osi_RequestCtx* _ctx);
 int osi_get_display_current(Osi_RequestCtx* _ctx);
 int osi_get_display_graph_hour(Osi_RequestCtx* _ctx);
 /* REMEMBER TO CHANGE COUNT WHEN ADDING ENDPOINT! */
-#define ENDPOINTS_COUNT 15
+#define ENDPOINTS_COUNT 17
 int osi_get_facilities(Osi_RequestCtx* _ctx);
 
 
@@ -124,6 +138,16 @@ const Device_API_Endpoint Endpoints[ENDPOINTS_COUNT] = {
         "/ingest",
         HTTP_POST,
         osi_post_ingest,
+    },
+    {
+        "/weather/cache",
+        HTTP_GET,
+        osi_get_weather_cache,
+    },
+    {
+        "/spot-price/cache",
+        HTTP_GET,
+        osi_get_spot_cache,
     },
     {
         "/power/current",
@@ -228,6 +252,213 @@ static const char* osi_get_query_param(HTTP_Request* req, const char* key) {
   }
 
   return NULL;
+}
+
+static int osi_parse_time_range(HTTP_Request* req, time_t* start_out, time_t* end_out) {
+  if (!start_out || !end_out) {
+    return ERR_INVALID_ARG;
+  }
+
+  time_t now = time(NULL);
+  time_t end = now;
+  time_t start = now - 86400;
+
+  const char* range = osi_get_query_param(req, "range");
+  if (range) {
+    if (strcmp(range, "7d") == 0) {
+      start = now - (7 * 86400);
+    } else if (strcmp(range, "30d") == 0) {
+      start = now - (30 * 86400);
+    } else if (strcmp(range, "24h") == 0) {
+      start = now - 86400;
+    }
+  }
+
+  const char* from = osi_get_query_param(req, "from");
+  const char* to = osi_get_query_param(req, "to");
+  if (from && from[0] != '\0') {
+    start = (time_t)atoll(from);
+  }
+  if (to && to[0] != '\0') {
+    end = (time_t)atoll(to);
+  }
+
+  if (start <= 0 || end <= start) {
+    return ERR_INVALID_ARG;
+  }
+
+  *start_out = start;
+  *end_out = end;
+  return SUCCESS;
+}
+
+static int osi_load_request_facility(HTTP_Request* req, Facility_Config*** configs_out,
+                                     size_t* count_out, Facility_Config** facility_out) {
+  if (!configs_out || !count_out || !facility_out) {
+    return ERR_INVALID_ARG;
+  }
+
+  *configs_out = NULL;
+  *count_out = 0;
+  *facility_out = NULL;
+
+  char facility_dir[256] = {0};
+  int dir_result = osi_get_facility_config_dir(facility_dir, sizeof(facility_dir));
+  if (dir_result != SUCCESS) {
+    return dir_result;
+  }
+
+  Facility_Config** configs = facility_get_configs(facility_dir, count_out);
+  if (!configs || *count_out == 0) {
+    return ERR_NOT_FOUND;
+  }
+
+  const char* requested_name = osi_get_query_param(req, "name");
+  for (size_t i = 0; i < *count_out; ++i) {
+    if (!configs[i]) {
+      continue;
+    }
+    if (!requested_name || requested_name[0] == '\0' ||
+        (configs[i]->name && strcmp(configs[i]->name, requested_name) == 0)) {
+      *configs_out = configs;
+      *facility_out = configs[i];
+      return SUCCESS;
+    }
+  }
+
+  facility_dispose(configs, *count_out);
+  *count_out = 0;
+  return ERR_NOT_FOUND;
+}
+
+static int osi_weather_to_json(const Weather* weather, int forecast, char** body_out) {
+  if (!weather || !body_out) {
+    return ERR_INVALID_ARG;
+  }
+
+  *body_out = NULL;
+  cJSON* root = cJSON_CreateObject();
+  cJSON* meta = cJSON_CreateObject();
+  cJSON* values = cJSON_CreateArray();
+  if (!root || !meta || !values) {
+    cJSON_Delete(root);
+    cJSON_Delete(meta);
+    cJSON_Delete(values);
+    return ERR_NO_MEMORY;
+  }
+
+  cJSON_AddNumberToObject(meta, "count", weather->count);
+  cJSON_AddNumberToObject(meta, "forecast", forecast);
+  cJSON_AddNumberToObject(meta, "interval_minutes", weather->update_interval);
+  cJSON_AddNumberToObject(meta, "latitude", weather->latitude);
+  cJSON_AddNumberToObject(meta, "longitude", weather->longitude);
+  cJSON_AddNumberToObject(meta, "solar_panel_tilt", weather->panel_tilt);
+  cJSON_AddNumberToObject(meta, "solar_panel_azimuth", weather->panel_azimuth);
+  cJSON_AddStringToObject(meta, "temperature_unit",
+                          weather->temperature_unit ? weather->temperature_unit : "");
+  cJSON_AddStringToObject(meta, "windspeed_unit",
+                          weather->windspeed_unit ? weather->windspeed_unit : "");
+  cJSON_AddStringToObject(meta, "precipitation_unit",
+                          weather->precipitation_unit ? weather->precipitation_unit : "");
+  cJSON_AddStringToObject(meta, "winddirection_unit",
+                          weather->winddirection_unit ? weather->winddirection_unit : "");
+  cJSON_AddStringToObject(meta, "radiation_unit",
+                          weather->radiation_unit ? weather->radiation_unit : "");
+  cJSON_AddItemToObject(root, "meta", meta);
+
+  for (unsigned int i = 0; i < weather->count; ++i) {
+    const Weather_Values* value = &weather->values[i];
+    cJSON* item = cJSON_CreateObject();
+    if (!item) {
+      cJSON_Delete(root);
+      return ERR_NO_MEMORY;
+    }
+
+    cJSON_AddNumberToObject(item, "timestamp", (double)value->timestamp);
+    char* timestamp_iso = parse_epoch_to_iso_full_datetime_string(&value->timestamp, 0);
+    if (timestamp_iso) {
+      cJSON_AddStringToObject(item, "timestamp_iso", timestamp_iso);
+      free(timestamp_iso);
+    }
+    cJSON_AddNumberToObject(item, "temperature", value->temperature);
+    cJSON_AddNumberToObject(item, "precipitation", value->precipitation);
+    cJSON_AddNumberToObject(item, "windspeed", value->windspeed);
+    cJSON_AddNumberToObject(item, "winddirection", value->winddirection_azimuth);
+    cJSON_AddNumberToObject(item, "radiation_direct", value->radiation_direct);
+    cJSON_AddNumberToObject(item, "radiation_direct_n", value->radiation_direct_n);
+    cJSON_AddNumberToObject(item, "radiation_diffuse", value->radiation_diffuse);
+    cJSON_AddNumberToObject(item, "radiation_shortwave", value->radiation_shortwave);
+    cJSON_AddNumberToObject(item, "radiation_tilted", value->radiation_tilted);
+    cJSON_AddNumberToObject(item, "sun_duration", value->sun_duration);
+    cJSON_AddItemToArray(values, item);
+  }
+
+  cJSON_AddItemToObject(root, "values", values);
+  *body_out = cJSON_PrintUnformatted(root);
+  cJSON_Delete(root);
+  return *body_out ? SUCCESS : ERR_NO_MEMORY;
+}
+
+static int osi_spots_to_json(const Electricity_Spots* spots, char** body_out) {
+  if (!spots || !body_out) {
+    return ERR_INVALID_ARG;
+  }
+
+  *body_out = NULL;
+  cJSON* root = cJSON_CreateObject();
+  cJSON* prices = cJSON_CreateArray();
+  if (!root || !prices) {
+    cJSON_Delete(root);
+    cJSON_Delete(prices);
+    return ERR_NO_MEMORY;
+  }
+
+  cJSON_AddNumberToObject(root, "energy_zone", ((int)spots->price_class) + 1);
+  cJSON_AddStringToObject(root, "unit", spots->unit ? spots->unit : "SEK/kWh");
+  cJSON_AddNumberToObject(root, "interval_minutes", spots->interval);
+  cJSON_AddNumberToObject(root, "count", spots->price_count);
+
+  for (unsigned int i = 0; i < spots->price_count; ++i) {
+    const Electricity_Spot_Price* price = &spots->prices[i];
+    cJSON* item = cJSON_CreateObject();
+    if (!item) {
+      cJSON_Delete(root);
+      return ERR_NO_MEMORY;
+    }
+
+    cJSON_AddNumberToObject(item, "time_start", (double)price->time_start);
+    cJSON_AddNumberToObject(item, "time_end", (double)price->time_end);
+    cJSON_AddNumberToObject(item, "spot_price", price->spot_price);
+    cJSON_AddItemToArray(prices, item);
+  }
+
+  cJSON_AddItemToObject(root, "prices", prices);
+  *body_out = cJSON_PrintUnformatted(root);
+  cJSON_Delete(root);
+  return *body_out ? SUCCESS : ERR_NO_MEMORY;
+}
+
+static void osi_weather_dispose(Weather* weather) {
+  if (!weather) {
+    return;
+  }
+
+  free(weather->values);
+  free((void*)weather->temperature_unit);
+  free((void*)weather->windspeed_unit);
+  free((void*)weather->precipitation_unit);
+  free((void*)weather->winddirection_unit);
+  free((void*)weather->radiation_unit);
+  memset(weather, 0, sizeof(Weather));
+}
+
+static void osi_spots_dispose(Electricity_Spots* spots) {
+  if (!spots) {
+    return;
+  }
+
+  free(spots->prices);
+  memset(spots, 0, sizeof(Electricity_Spots));
 }
 
 static cJSON* osi_get_json_item_any(cJSON* root, const char* const* keys) {
@@ -1240,6 +1471,118 @@ int osi_post_ingest(Osi_RequestCtx* _ctx) {
   }
 
   return osi_set_response(_ctx->conn, 200, "application/json", "{\"status\":\"ok\"}");
+}
+
+int osi_get_weather_cache(Osi_RequestCtx* _ctx) {
+  if (!_ctx || !_ctx->conn || !_ctx->conn->request) {
+    return ERR_INVALID_ARG;
+  }
+
+  Opti_Server* server = (Opti_Server*)_ctx->ctx;
+  if (!server) {
+    return ERR_INVALID_ARG;
+  }
+
+  time_t start = 0;
+  time_t end = 0;
+  int range_result = osi_parse_time_range(_ctx->conn->request, &start, &end);
+  if (range_result != SUCCESS) {
+    return osi_set_response(_ctx->conn, 400, "application/json",
+                            "{\"error\":\"invalid time range\"}");
+  }
+
+  Facility_Config** configs = NULL;
+  Facility_Config* facility = NULL;
+  size_t facility_count = 0;
+  int facility_result =
+      osi_load_request_facility(_ctx->conn->request, &configs, &facility_count, &facility);
+  if (facility_result != SUCCESS || !facility) {
+    return osi_set_response(_ctx->conn, 404, "application/json",
+                            "{\"error\":\"facility not found\"}");
+  }
+
+  int panel_tilt = facility->panel ? facility->panel->tilt : 0;
+  unsigned int panel_azimuth = facility->panel ? (unsigned int)facility->panel->azimuth : 0;
+  const char* forecast_param = osi_get_query_param(_ctx->conn->request, "forecast");
+  bool forecast = !forecast_param || strcmp(forecast_param, "0") != 0;
+
+  Weather weather = {0};
+  int read_result =
+      sql_helper_read_weather(&server->optimizer_cache, &weather, facility->lat, facility->lon,
+                              panel_tilt, panel_azimuth, forecast, start, end);
+  facility_dispose(configs, facility_count);
+
+  if (read_result != SUCCESS) {
+    osi_weather_dispose(&weather);
+    return read_result;
+  }
+
+  char* body = NULL;
+  int json_result = osi_weather_to_json(&weather, forecast ? 1 : 0, &body);
+  osi_weather_dispose(&weather);
+  if (json_result != SUCCESS) {
+    free(body);
+    return json_result;
+  }
+
+  int res = osi_set_response(_ctx->conn, 200, "application/json", body);
+  free(body);
+  return res;
+}
+
+int osi_get_spot_cache(Osi_RequestCtx* _ctx) {
+  if (!_ctx || !_ctx->conn || !_ctx->conn->request) {
+    return ERR_INVALID_ARG;
+  }
+
+  Opti_Server* server = (Opti_Server*)_ctx->ctx;
+  if (!server) {
+    return ERR_INVALID_ARG;
+  }
+
+  time_t start = 0;
+  time_t end = 0;
+  int range_result = osi_parse_time_range(_ctx->conn->request, &start, &end);
+  if (range_result != SUCCESS) {
+    return osi_set_response(_ctx->conn, 400, "application/json",
+                            "{\"error\":\"invalid time range\"}");
+  }
+
+  int zone = 3;
+  const char* zone_param = osi_get_query_param(_ctx->conn->request, "energy_zone");
+  if (!zone_param) {
+    zone_param = osi_get_query_param(_ctx->conn->request, "price_class");
+  }
+  if (zone_param && zone_param[0] != '\0') {
+    zone = atoi(zone_param);
+  }
+
+  SpotPriceClass price_class = SE3;
+  if (zone >= 1 && zone <= 4) {
+    price_class = (SpotPriceClass)(zone - 1);
+  } else if (zone >= 0 && zone <= 3) {
+    price_class = (SpotPriceClass)zone;
+  }
+
+  Electricity_Spots spots = {0};
+  int read_result =
+      sql_helper_read_spots(&server->optimizer_cache, &spots, price_class, SPOT_SEK, start, end);
+  if (read_result != SUCCESS) {
+    osi_spots_dispose(&spots);
+    return read_result;
+  }
+
+  char* body = NULL;
+  int json_result = osi_spots_to_json(&spots, &body);
+  osi_spots_dispose(&spots);
+  if (json_result != SUCCESS) {
+    free(body);
+    return json_result;
+  }
+
+  int res = osi_set_response(_ctx->conn, 200, "application/json", body);
+  free(body);
+  return res;
 }
 
 int osi_get_power_current(Osi_RequestCtx* _ctx) {

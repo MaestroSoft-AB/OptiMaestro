@@ -1,8 +1,12 @@
 #include "opti/opti_server.h"
 #include "opti/opti_instance.h"
+#include <maestroutils/config_handler.h>
 #include <maestroutils/error.h>
 #include <maestroutils/file_utils.h>
 #include <string.h>
+
+#define OPTI_CONFIG_PATH "/etc/maestro/optimizer.conf"
+#define OPTI_CACHE_DEFAULT_DATA_DIR "/var/lib/maestro"
 
 /* -----------------Internal Functions----------------- */
 
@@ -10,6 +14,8 @@ void opti_s_taskwork(void* _context, uint64_t _montime);
 int  opti_s_on_http_connection(void* _context, HTTP_Server_Connection* _Connection);
 int  opti_s_on_instance_finish(void* _context, void* _instance);
 int  opti_s_init_meter_store(Opti_Server* _Server);
+int  opti_s_init_optimizer_cache(Opti_Server* _Server);
+void opti_s_get_optimizer_cache_path(char* _path, size_t _path_size);
 
 OptiServerState opti_server_connection_handover(Opti_Server* _Server);
 /* ---------------------------------------------------- */
@@ -26,6 +32,7 @@ int opti_s_init(Opti_Server* _Server) {
   _Server->state           = OPTI_SERVER_INIT;
   _Server->http_connection = NULL;
   memset(&_Server->meter_store, 0, sizeof(Meter_Reading_Store));
+  memset(&_Server->optimizer_cache, 0, sizeof(SqlHelper));
 
   int result = http_server_init(&_Server->http_server, opti_s_on_http_connection, _Server);
   if (result != SUCCESS) {
@@ -58,6 +65,16 @@ int opti_s_init(Opti_Server* _Server) {
 
   result = opti_s_init_meter_store(_Server);
   if (result != SUCCESS) {
+    linked_list_destroy(&_Server->instances);
+    http_server_dispose(&_Server->http_server);
+    scheduler_destroy_task(_Server->task);
+    _Server->state = OPTI_SERVER_ERROR;
+    return result;
+  }
+
+  result = opti_s_init_optimizer_cache(_Server);
+  if (result != SUCCESS) {
+    meter_store_dispose(&_Server->meter_store);
     linked_list_destroy(&_Server->instances);
     http_server_dispose(&_Server->http_server);
     scheduler_destroy_task(_Server->task);
@@ -114,6 +131,51 @@ int opti_s_init_meter_store(Opti_Server* _Server) {
   }
 
   return SUCCESS;
+}
+
+int opti_s_init_optimizer_cache(Opti_Server* _Server) {
+  if (!_Server) {
+    return ERR_INVALID_ARG;
+  }
+
+  char db_path[512] = {0};
+  opti_s_get_optimizer_cache_path(db_path, sizeof(db_path));
+
+  int res = sql_helper_init(&_Server->optimizer_cache);
+  if (res != SUCCESS) {
+    return res;
+  }
+
+  res = sql_helper_open(&_Server->optimizer_cache, db_path);
+  if (res != SUCCESS) {
+    sql_helper_dispose(&_Server->optimizer_cache);
+    return res;
+  }
+
+  res = sql_helper_init_schema(&_Server->optimizer_cache);
+  if (res != SUCCESS) {
+    sql_helper_dispose(&_Server->optimizer_cache);
+    return res;
+  }
+
+  return SUCCESS;
+}
+
+void opti_s_get_optimizer_cache_path(char* _path, size_t _path_size) {
+  if (!_path || _path_size == 0) {
+    return;
+  }
+
+  char data_dir[256] = {0};
+  const char* keys[] = {"data.dir"};
+  char* values[] = {data_dir};
+
+  int res = config_get_value(OPTI_CONFIG_PATH, keys, values, sizeof(data_dir), 1);
+  if (res != SUCCESS || data_dir[0] == '\0') {
+    snprintf(data_dir, sizeof(data_dir), "%s", OPTI_CACHE_DEFAULT_DATA_DIR);
+  }
+
+  snprintf(_path, _path_size, "%s/cache.db", data_dir);
 }
 
 /* --------------TASKWORK STATE FUNCTIONS-------------- */
@@ -235,6 +297,7 @@ void opti_s_dispose(Opti_Server* _Server) {
     linked_list_destroy(&_Server->instances);
   }
   http_server_dispose(&_Server->http_server);
+  sql_helper_dispose(&_Server->optimizer_cache);
 
   if (_Server->task) {
     scheduler_destroy_task(_Server->task);

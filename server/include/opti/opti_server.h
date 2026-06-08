@@ -7,6 +7,7 @@
 
 #include "http/http_server.h"
 #include "meter_reading_store.h"
+#include "sqlite_helpers.h"
 
 #define DATA_DIR "data/"
 
@@ -36,6 +37,7 @@ typedef struct
   Linked_List* instances;
   OptiServerState state;
   Meter_Reading_Store meter_store;
+  SqlHelper optimizer_cache;
 
 } Opti_Server;
 
