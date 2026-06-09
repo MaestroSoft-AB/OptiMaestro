@@ -1617,6 +1617,7 @@ int osi_get_display_graph_hour(Osi_RequestCtx* _ctx) {
 
   HTTP_Request* req           = _ctx->conn->request;
   const char*   facility_name = osi_get_query_param(req, "name");
+  const char*   range_param   = osi_get_query_param(req, "range");
   char          default_name[128] = {0};
 
   if (!facility_name || facility_name[0] == '\0') {
@@ -1640,15 +1641,32 @@ int osi_get_display_graph_hour(Osi_RequestCtx* _ctx) {
   char date[11];
   strftime(date, sizeof(date), "%Y-%m-%d", &tm);
 
+  const char* suffix = "";
+  if (range_param && strcmp(range_param, "7d") == 0) {
+    suffix = "-7d";
+  } else if (range_param && strcmp(range_param, "30d") == 0) {
+    suffix = "-30d";
+  }
+
   char filename[512];
-  int  len = snprintf(filename, sizeof(filename), "%s/%s-Consumption_%s-display.json", calcs_dir,
-                      facility_name, date);
+  int  len = snprintf(filename, sizeof(filename), "%s/%s-Consumption_%s-display%s.json",
+                      calcs_dir, facility_name, date, suffix);
   if (len < 0 || (size_t)len >= sizeof(filename)) {
     return osi_set_response(_ctx->conn, 500, "application/json",
                             "{\"error\":\"failed to format display graph filename\"}");
   }
 
   const char* file_content = read_file_to_string(filename);
+  if (!file_content) {
+    if (suffix[0] != '\0') {
+      len = snprintf(filename, sizeof(filename), "%s/%s-Consumption_%s-display.json",
+                     calcs_dir, facility_name, date);
+      if (len >= 0 && (size_t)len < sizeof(filename)) {
+        file_content = read_file_to_string(filename);
+      }
+    }
+  }
+
   if (!file_content) {
     char response[256];
     len = snprintf(response, sizeof(response), "{\"error\":\"display graph not available (%s)\"}",
