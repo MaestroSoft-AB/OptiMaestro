@@ -326,6 +326,26 @@ static int osi_load_request_facility(HTTP_Request* req, Facility_Config*** confi
     }
   }
 
+  if (requested_name && requested_name[0] != '\0') {
+    char default_name[128] = {0};
+    if (osi_get_default_facility_name(default_name, sizeof(default_name)) == SUCCESS &&
+        default_name[0] != '\0') {
+      for (size_t i = 0; i < *count_out; ++i) {
+        if (configs[i] && configs[i]->name && strcmp(configs[i]->name, default_name) == 0) {
+          *configs_out = configs;
+          *facility_out = configs[i];
+          return SUCCESS;
+        }
+      }
+    }
+
+    if (*count_out == 1 && configs[0]) {
+      *configs_out = configs;
+      *facility_out = configs[0];
+      return SUCCESS;
+    }
+  }
+
   facility_dispose(configs, *count_out);
   *count_out = 0;
   return ERR_NOT_FOUND;
