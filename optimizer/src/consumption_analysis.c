@@ -435,7 +435,8 @@ static int build_daily_history_series(Historical_Daily_Series* _S, SqlHelper* _S
   _S->point_count = _history_days;
 
   time_t today_start = epoch_now_day();
-  time_t range_start = today_start - ((time_t)_history_days * 86400);
+  time_t tomorrow_start = today_start + 86400;
+  time_t range_start = today_start - ((time_t)(_history_days - 1) * 86400);
   for (int i = 0; i < _history_days; i++) {
     _S->timestamps[i] = range_start + ((time_t)i * 86400);
   }
@@ -454,7 +455,7 @@ static int build_daily_history_series(Historical_Daily_Series* _S, SqlHelper* _S
 
   Meter_Reading_Row* rows = NULL;
   size_t count = 0;
-  res = meter_store_read_range(&store, range_start, today_start, &rows, &count);
+  res = meter_store_read_range(&store, range_start, tomorrow_start, &rows, &count);
   meter_store_close(&store);
   meter_store_dispose(&store);
   if (res != SUCCESS) {
@@ -499,7 +500,7 @@ static int build_daily_history_series(Historical_Daily_Series* _S, SqlHelper* _S
 
   Electricity_Spots spots = {0};
   res = ech_get_spots_range(_Sql, &spots, _data_dir, _F->price_class, _F->currency,
-                            range_start, today_start);
+                            range_start, tomorrow_start);
   if (res == SUCCESS && spots.prices && spots.price_count > 0) {
     double price_sum[PROFILE_HISTORY_MAX_DAYS] = {0};
     int price_count[PROFILE_HISTORY_MAX_DAYS] = {0};
