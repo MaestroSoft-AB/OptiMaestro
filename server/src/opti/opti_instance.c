@@ -35,6 +35,7 @@ static int osi_append_text(char** buffer, size_t* used, size_t* capacity, const 
                            size_t text_len);
 static int osi_get_facility_config_dir(char* dir_out, size_t dir_out_size);
 static int osi_parse_time_range(HTTP_Request* req, time_t* start_out, time_t* end_out);
+static int osi_get_default_facility_name(char* name_out, size_t name_out_size);
 static int osi_load_request_facility(HTTP_Request* req, Facility_Config*** configs_out,
                                      size_t* count_out, Facility_Config** facility_out);
 static int osi_weather_to_json(const Weather* weather, int forecast, char** body_out);
