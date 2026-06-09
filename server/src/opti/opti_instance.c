@@ -1653,7 +1653,8 @@ int osi_get_display_graph_hour(Osi_RequestCtx* _ctx) {
   char calcs_dir[256] = {0};
   int  dir_result     = osi_get_calcs_dir(calcs_dir, sizeof(calcs_dir));
   if (dir_result != SUCCESS) {
-    return dir_result;
+    return osi_set_response(_ctx->conn, 500, "application/json",
+                            "{\"error\":\"failed to resolve calcs dir\"}");
   }
 
   time_t    now = time(NULL);
@@ -1678,15 +1679,6 @@ int osi_get_display_graph_hour(Osi_RequestCtx* _ctx) {
   }
 
   const char* file_content = read_file_to_string(filename);
-  if (!file_content) {
-    if (suffix[0] != '\0') {
-      len = snprintf(filename, sizeof(filename), "%s/%s-Consumption_%s-display.json",
-                     calcs_dir, facility_name, date);
-      if (len >= 0 && (size_t)len < sizeof(filename)) {
-        file_content = read_file_to_string(filename);
-      }
-    }
-  }
 
   if (!file_content) {
     char response[256];

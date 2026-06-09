@@ -63,6 +63,23 @@ typedef struct
   int    samples;
 } Weather_Day_Summary;
 
+typedef struct
+{
+  int    point_count;
+  int    available_days;
+  time_t timestamps[PROFILE_HISTORY_MAX_DAYS];
+  int    has_data[PROFILE_HISTORY_MAX_DAYS];
+  double kwh[PROFILE_HISTORY_MAX_DAYS];
+  double avg_price[PROFILE_HISTORY_MAX_DAYS];
+  double cost[PROFILE_HISTORY_MAX_DAYS];
+  double avg_power_w[PROFILE_HISTORY_MAX_DAYS];
+  double total_kwh;
+  double total_cost;
+  double latest_avg_price;
+  double latest_avg_power_w;
+  double max_avg_power_w;
+} Historical_Daily_Series;
+
 static int    create_facility_report(const Calc_Args* _Args, const Facility_Config* _F);
 static int    build_profile(Consumption_Profile* _P, SqlHelper* _Sql, const Facility_Config* _F,
                             const char* _data_dir, int _history_days);
@@ -71,15 +88,15 @@ static int    accumulate_readings(Consumption_Profile* _P, const Meter_Reading_R
                                   int _history_days);
 static int    load_spots(SqlHelper* _Sql, Electricity_Spots* _S, const Facility_Config* _F,
                          const char* _data_dir, time_t _day_start, bool _allow_today_fallback);
-static int    load_spots_history_average(SqlHelper* _Sql, Electricity_Spots* _S,
-                                         const Facility_Config* _F, const char* _data_dir,
-                                         time_t _start, time_t _end);
 static int    estimate_tomorrow_spots(SqlHelper* _Sql, Electricity_Spots* _out,
                                       const Electricity_Spots* _today, const Facility_Config* _F,
                                       const char* _data_dir, time_t _tomorrow_start,
                                       Tomorrow_Spot_Source* _source);
 static int    write_history_display_report(const Calc_Args* _Args, const Facility_Config* _F,
                                            int _history_days, const char* _suffix);
+static int    build_daily_history_series(Historical_Daily_Series* _S, SqlHelper* _Sql,
+                                         const Facility_Config* _F, const char* _data_dir,
+                                         int _history_days);
 static int    read_weather_summary(SqlHelper* _Sql, const Facility_Config* _F, time_t _start,
                                    Weather_Day_Summary* _summary);
 static double weather_similarity(const Weather_Day_Summary* _target,
@@ -406,57 +423,122 @@ static int load_spots(SqlHelper* _Sql, Electricity_Spots* _S, const Facility_Con
                              epoch_now_day() - 3600, epoch_now_day() + 86400 - 3600);
 }
 
-static int load_spots_history_average(SqlHelper* _Sql, Electricity_Spots* _S,
+static int build_daily_history_series(Historical_Daily_Series* _S, SqlHelper* _Sql,
                                       const Facility_Config* _F, const char* _data_dir,
-                                      time_t _start, time_t _end) {
-  if (!_Sql || !_S || !_F || !_data_dir || _end <= _start) {
+                                      int _history_days) {
+  if (!_S || !_Sql || !_F || !_data_dir || _history_days < 1 ||
+      _history_days > PROFILE_HISTORY_MAX_DAYS) {
     return ERR_INVALID_ARG;
   }
 
-  Electricity_Spots history = {0};
-  int res = ech_get_spots_range(_Sql, &history, _data_dir, _F->price_class, _F->currency, _start,
-                                _end);
-  if (res != SUCCESS || history.price_count == 0 || !history.prices) {
-    if (history.prices) {
-      free(history.prices);
-    }
-    return res == SUCCESS ? ERR_NOT_FOUND : res;
+  memset(_S, 0, sizeof(*_S));
+  _S->point_count = _history_days;
+
+  time_t today_start = epoch_now_day();
+  time_t range_start = today_start - ((time_t)_history_days * 86400);
+  for (int i = 0; i < _history_days; i++) {
+    _S->timestamps[i] = range_start + ((time_t)i * 86400);
   }
 
-  double sum[24] = {0.0};
-  int count[24] = {0};
-  for (unsigned int i = 0; i < history.price_count; i++) {
-    struct tm tm = {0};
-    localtime_r(&history.prices[i].time_start, &tm);
-    int hour = tm.tm_hour;
-    if (hour < 0 || hour >= 24) {
+  Meter_Reading_Store store;
+  int res = meter_store_init(&store);
+  if (res != SUCCESS) {
+    return res;
+  }
+
+  res = meter_store_open(&store, METER_READING_STORE_DEFAULT_DB_PATH, true);
+  if (res != SUCCESS) {
+    meter_store_dispose(&store);
+    return res;
+  }
+
+  Meter_Reading_Row* rows = NULL;
+  size_t count = 0;
+  res = meter_store_read_range(&store, range_start, today_start, &rows, &count);
+  meter_store_close(&store);
+  meter_store_dispose(&store);
+  if (res != SUCCESS) {
+    return res;
+  }
+
+  for (size_t i = 1; i < count; i++) {
+    const Meter_Reading* prev = &rows[i - 1].reading;
+    const Meter_Reading* cur = &rows[i].reading;
+    time_t from = rows[i - 1].received_at;
+    time_t to = rows[i].received_at;
+
+    if (to <= from || (to - from) > 7200) {
       continue;
     }
-    sum[hour] += history.prices[i].spot_price;
-    count[hour]++;
+
+    double kwh = 0.0;
+    if ((prev->present_flags & METER_READING_PRESENT_ENERGY_IMPORT) &&
+        (cur->present_flags & METER_READING_PRESENT_ENERGY_IMPORT)) {
+      kwh = cur->energy_import_kwh - prev->energy_import_kwh;
+      if (kwh < 0.0 || kwh > 50.0) {
+        continue;
+      }
+    } else if (cur->present_flags & METER_READING_PRESENT_AVERAGE_POWER_15M) {
+      kwh = (cur->average_power_15m_w / 1000.0) * ((double)(to - from) / 3600.0);
+    } else if (cur->present_flags & METER_READING_PRESENT_POWER) {
+      kwh = (cur->power_w / 1000.0) * ((double)(to - from) / 3600.0);
+    } else {
+      continue;
+    }
+
+    int day_index = (int)((to - range_start) / 86400);
+    if (day_index < 0 || day_index >= _history_days) {
+      continue;
+    }
+
+    _S->has_data[day_index] = 1;
+    _S->kwh[day_index] += kwh;
   }
 
-  _S->price_count = 24;
-  _S->interval = 60;
-  _S->price_class = _F->price_class;
-  _S->currency = _F->currency;
-  _S->unit = "SEK/kWh";
-  _S->prices = calloc(_S->price_count, sizeof(Electricity_Spot_Price));
-  if (!_S->prices) {
-    free(history.prices);
-    return ERR_NO_MEMORY;
+  meter_store_rows_dispose(&rows, &count);
+
+  Electricity_Spots spots = {0};
+  res = ech_get_spots_range(_Sql, &spots, _data_dir, _F->price_class, _F->currency,
+                            range_start, today_start);
+  if (res == SUCCESS && spots.prices && spots.price_count > 0) {
+    double price_sum[PROFILE_HISTORY_MAX_DAYS] = {0};
+    int price_count[PROFILE_HISTORY_MAX_DAYS] = {0};
+
+    for (unsigned int i = 0; i < spots.price_count; i++) {
+      int day_index = (int)((spots.prices[i].time_start - range_start) / 86400);
+      if (day_index < 0 || day_index >= _history_days) {
+        continue;
+      }
+      price_sum[day_index] += spots.prices[i].spot_price;
+      price_count[day_index]++;
+    }
+
+    for (int i = 0; i < _history_days; i++) {
+      if (price_count[i] > 0) {
+        _S->avg_price[i] = price_sum[i] / (double)price_count[i];
+      }
+    }
+  }
+  free(spots.prices);
+
+  for (int i = 0; i < _history_days; i++) {
+    if (!_S->has_data[i]) {
+      continue;
+    }
+
+    _S->available_days++;
+    _S->avg_power_w[i] = (_S->kwh[i] * 1000.0) / 24.0;
+    _S->cost[i] = _S->kwh[i] * _S->avg_price[i];
+    _S->total_kwh += _S->kwh[i];
+    _S->total_cost += _S->cost[i];
+    _S->latest_avg_price = _S->avg_price[i];
+    _S->latest_avg_power_w = _S->avg_power_w[i];
+    if (_S->avg_power_w[i] > _S->max_avg_power_w) {
+      _S->max_avg_power_w = _S->avg_power_w[i];
+    }
   }
 
-  for (unsigned int hour = 0; hour < _S->price_count; hour++) {
-    double avg = count[hour] > 0 ? sum[hour] / (double)count[hour] : 0.0;
-    time_t start = _start + (time_t)(hour * 3600);
-    _S->prices[hour].time_start = start;
-    _S->prices[hour].time_end = start + 3600;
-    _S->prices[hour].spot_price = (float)avg;
-  }
-
-  free(history.prices);
-  return SUCCESS;
+  return _S->available_days > 0 ? SUCCESS : ERR_NOT_FOUND;
 }
 
 static int write_history_display_report(const Calc_Args* _Args, const Facility_Config* _F,
@@ -465,53 +547,74 @@ static int write_history_display_report(const Calc_Args* _Args, const Facility_C
     return ERR_INVALID_ARG;
   }
 
-  Consumption_Profile profile = {0};
-  int res = build_profile(&profile, _Args->sqlhelper, _F, _Args->data_dir, _history_days);
+  Historical_Daily_Series series = {0};
+  int res = build_daily_history_series(&series, _Args->sqlhelper, _F, _Args->data_dir,
+                                       _history_days);
   if (res != SUCCESS) {
     return res;
   }
-
-  memcpy(profile.today_kwh, profile.trend_kwh, sizeof(profile.today_kwh));
-  profile.today_total_kwh = profile.trend_total_kwh;
-  profile.today_peak_bucket = profile.trend_peak_bucket;
-  profile.today_low_bucket = profile.trend_low_bucket;
-  memcpy(profile.trend_kwh, profile.today_kwh, sizeof(profile.trend_kwh));
-  profile.trend_total_kwh = profile.today_total_kwh;
-  profile.trend_peak_bucket = profile.today_peak_bucket;
-  profile.trend_low_bucket = profile.today_low_bucket;
-
-  time_t today_start = epoch_now_day();
-  time_t history_start = today_start - ((time_t)_history_days * 86400);
-
-  Electricity_Spots today = {0};
-  res = load_spots_history_average(_Args->sqlhelper, &today, _F, _Args->data_dir, history_start,
-                                   today_start);
-  if (res != SUCCESS) {
-    if (today.prices) {
-      free(today.prices);
-    }
-    return res;
-  }
-
-  Electricity_Spots tomorrow = today;
-  Tomorrow_Spot_Source tomorrow_spot_source = TOMORROW_SPOTS_FALLBACK_TODAY;
-  apply_spot_costs(&profile, &today, &tomorrow);
 
   time_t now = time(NULL);
   char* display_json_name = display_report_name(_Args->calcs_dir, _F->name, now, _suffix);
   if (!display_json_name) {
-    free(today.prices);
     return ERR_NO_MEMORY;
   }
 
+  cJSON* root = cJSON_CreateObject();
+  cJSON* sum = cJSON_AddObjectToObject(root, "sum");
+  cJSON* data = cJSON_AddObjectToObject(root, "s");
+  cJSON* consumption = cJSON_AddArrayToObject(data, "c");
+  cJSON* price = cJSON_AddArrayToObject(data, "p");
+  cJSON* cost = cJSON_AddArrayToObject(data, "o");
+  cJSON* power = cJSON_AddArrayToObject(data, "x");
+  cJSON* timestamps = cJSON_AddArrayToObject(data, "t");
+  cJSON* availability = cJSON_AddArrayToObject(data, "d");
+  if (!root || !sum || !data || !consumption || !price || !cost || !power ||
+      !timestamps || !availability) {
+    cJSON_Delete(root);
+    free(display_json_name);
+    return ERR_NO_MEMORY;
+  }
+
+  cJSON_AddStringToObject(root, "v", "od2");
+  cJSON_AddStringToObject(root, "f", _F->name);
+  cJSON_AddNumberToObject(root, "a", (int)_F->price_class + 1);
+  cJSON_AddNumberToObject(root, "u", (double)now);
+  cJSON_AddNumberToObject(root, "m", 1440);
+  cJSON_AddNumberToObject(root, "src", 3);
+  cJSON_AddNumberToObject(sum, "ct", round_to_int(series.total_kwh * 1000.0));
+  cJSON_AddNumberToObject(sum, "cc", round_to_int(series.total_cost * 100.0));
+  cJSON_AddNumberToObject(sum, "av", series.available_days);
+
+  for (int i = 0; i < series.point_count; i++) {
+    cJSON_AddItemToArray(consumption,
+                         cJSON_CreateNumber(round_to_int(series.kwh[i] * 1000.0)));
+    cJSON_AddItemToArray(price,
+                         cJSON_CreateNumber(round_to_int(series.avg_price[i] * 1000.0)));
+    cJSON_AddItemToArray(cost,
+                         cJSON_CreateNumber(round_to_int(series.cost[i] * 100.0)));
+    cJSON_AddItemToArray(power,
+                         cJSON_CreateNumber(round_to_int(series.avg_power_w[i])));
+    cJSON_AddItemToArray(timestamps,
+                         cJSON_CreateNumber((double)series.timestamps[i]));
+    cJSON_AddItemToArray(availability,
+                         cJSON_CreateNumber(series.has_data[i] ? 1 : 0));
+  }
+
+  char* json = cJSON_PrintUnformatted(root);
+  cJSON_Delete(root);
+  if (!json) {
+    free(display_json_name);
+    return ERR_JSON_PARSE;
+  }
+
   int display_json_existed = access(display_json_name, F_OK) == 0;
-  res = write_display_json_report(&profile, &today, &tomorrow, _F, tomorrow_spot_source, now,
-                                  display_json_name);
+  res = write_string_to_file(json, display_json_name) == 0 ? SUCCESS : ERR_FATAL;
   if (res == SUCCESS) {
     log_report_written(display_json_name, display_json_existed);
   }
+  free(json);
   free(display_json_name);
-  free(today.prices);
   return res;
 }
 
