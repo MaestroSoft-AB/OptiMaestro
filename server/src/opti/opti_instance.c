@@ -38,6 +38,9 @@ static int osi_parse_time_range(HTTP_Request* req, time_t* start_out, time_t* en
 static int osi_get_default_facility_name(char* name_out, size_t name_out_size);
 static int osi_load_request_facility(HTTP_Request* req, Facility_Config*** configs_out,
                                      size_t* count_out, Facility_Config** facility_out);
+static const char* osi_get_query_param_any(HTTP_Request* req, const char* const* keys);
+static int osi_parse_query_double(HTTP_Request* req, const char* const* keys, double* out);
+static int osi_parse_query_int(HTTP_Request* req, const char* const* keys, int* out);
 static int osi_weather_to_json(const Weather* weather, int forecast, char** body_out);
 static int osi_spots_to_json(const Electricity_Spots* spots, char** body_out);
 static void osi_weather_dispose(Weather* weather);
@@ -315,41 +318,84 @@ static int osi_load_request_facility(HTTP_Request* req, Facility_Config*** confi
   }
 
   const char* requested_name = osi_get_query_param(req, "name");
-  for (size_t i = 0; i < *count_out; ++i) {
-    if (!configs[i]) {
-      continue;
-    }
-    if (!requested_name || requested_name[0] == '\0' ||
-        (configs[i]->name && strcmp(configs[i]->name, requested_name) == 0)) {
+  if (!requested_name || requested_name[0] == '\0') {
+    for (size_t i = 0; i < *count_out; ++i) {
+      if (!configs[i]) {
+        continue;
+      }
+
       *configs_out = configs;
       *facility_out = configs[i];
       return SUCCESS;
     }
-  }
-
-  if (requested_name && requested_name[0] != '\0') {
-    char default_name[128] = {0};
-    if (osi_get_default_facility_name(default_name, sizeof(default_name)) == SUCCESS &&
-        default_name[0] != '\0') {
-      for (size_t i = 0; i < *count_out; ++i) {
-        if (configs[i] && configs[i]->name && strcmp(configs[i]->name, default_name) == 0) {
-          *configs_out = configs;
-          *facility_out = configs[i];
-          return SUCCESS;
-        }
+  } else {
+    for (size_t i = 0; i < *count_out; ++i) {
+      if (configs[i] && configs[i]->name && strcmp(configs[i]->name, requested_name) == 0) {
+        *configs_out = configs;
+        *facility_out = configs[i];
+        return SUCCESS;
       }
-    }
-
-    if (*count_out == 1 && configs[0]) {
-      *configs_out = configs;
-      *facility_out = configs[0];
-      return SUCCESS;
     }
   }
 
   facility_dispose(configs, *count_out);
   *count_out = 0;
   return ERR_NOT_FOUND;
+}
+
+static const char* osi_get_query_param_any(HTTP_Request* req, const char* const* keys) {
+  if (!req || !keys) {
+    return NULL;
+  }
+
+  for (int i = 0; keys[i] != NULL; ++i) {
+    const char* value = osi_get_query_param(req, keys[i]);
+    if (value && value[0] != '\0') {
+      return value;
+    }
+  }
+
+  return NULL;
+}
+
+static int osi_parse_query_double(HTTP_Request* req, const char* const* keys, double* out) {
+  if (!out) {
+    return 0;
+  }
+
+  const char* value = osi_get_query_param_any(req, keys);
+  if (!value) {
+    return 0;
+  }
+
+  char*  end    = NULL;
+  double parsed = strtod(value, &end);
+  if (end == value || !end || *end != '\0') {
+    return 0;
+  }
+
+  *out = parsed;
+  return 1;
+}
+
+static int osi_parse_query_int(HTTP_Request* req, const char* const* keys, int* out) {
+  if (!out) {
+    return 0;
+  }
+
+  const char* value = osi_get_query_param_any(req, keys);
+  if (!value) {
+    return 0;
+  }
+
+  char* end    = NULL;
+  long  parsed = strtol(value, &end, 10);
+  if (end == value || !end || *end != '\0') {
+    return 0;
+  }
+
+  *out = (int)parsed;
+  return 1;
 }
 
 static int osi_weather_to_json(const Weather* weather, int forecast, char** body_out) {
@@ -1512,26 +1558,69 @@ int osi_get_weather_cache(Osi_RequestCtx* _ctx) {
                             "{\"error\":\"invalid time range\"}");
   }
 
+  HTTP_Request* req = _ctx->conn->request;
   Facility_Config** configs = NULL;
   Facility_Config* facility = NULL;
   size_t facility_count = 0;
+  float latitude = 0.0f;
+  float longitude = 0.0f;
+  int panel_tilt = 0;
+  unsigned int panel_azimuth = 0;
   int facility_result =
-      osi_load_request_facility(_ctx->conn->request, &configs, &facility_count, &facility);
-  if (facility_result != SUCCESS || !facility) {
-    return osi_set_response(_ctx->conn, 404, "application/json",
-                            "{\"error\":\"facility not found\"}");
+      osi_load_request_facility(req, &configs, &facility_count, &facility);
+  if (facility_result == SUCCESS && facility) {
+    latitude = facility->lat;
+    longitude = facility->lon;
+    panel_tilt = facility->panel ? facility->panel->tilt : 0;
+    panel_azimuth = facility->panel ? (unsigned int)facility->panel->azimuth : 0;
+  } else {
+    const char* latitude_keys[] = {"latitude", "lat", NULL};
+    const char* longitude_keys[] = {"longitude", "lon", NULL};
+    const char* tilt_keys[] = {"panel_tilt", "panel.tilt", NULL};
+    const char* azimuth_keys[] = {"panel_azimuth", "panel.azimuth", NULL};
+    const char* latitude_param = osi_get_query_param_any(req, latitude_keys);
+    const char* longitude_param = osi_get_query_param_any(req, longitude_keys);
+    double latitude_value = 0.0;
+    double longitude_value = 0.0;
+    int parsed_tilt = 0;
+    int parsed_azimuth = 0;
+
+    if (!latitude_param || !longitude_param) {
+      return osi_set_response(_ctx->conn, 404, "application/json",
+                              "{\"error\":\"facility not found\"}");
+    }
+    if (!osi_parse_query_double(req, latitude_keys, &latitude_value) ||
+        !osi_parse_query_double(req, longitude_keys, &longitude_value)) {
+      return osi_set_response(_ctx->conn, 400, "application/json",
+                              "{\"error\":\"invalid latitude/longitude\"}");
+    }
+    if (osi_get_query_param_any(req, tilt_keys) != NULL &&
+        !osi_parse_query_int(req, tilt_keys, &parsed_tilt)) {
+      return osi_set_response(_ctx->conn, 400, "application/json",
+                              "{\"error\":\"invalid panel_tilt\"}");
+    }
+    if (osi_get_query_param_any(req, azimuth_keys) != NULL &&
+        !osi_parse_query_int(req, azimuth_keys, &parsed_azimuth)) {
+      return osi_set_response(_ctx->conn, 400, "application/json",
+                              "{\"error\":\"invalid panel_azimuth\"}");
+    }
+
+    latitude = (float)latitude_value;
+    longitude = (float)longitude_value;
+    panel_tilt = parsed_tilt;
+    panel_azimuth = (unsigned int)(parsed_azimuth < 0 ? 0 : parsed_azimuth);
   }
 
-  int panel_tilt = facility->panel ? facility->panel->tilt : 0;
-  unsigned int panel_azimuth = facility->panel ? (unsigned int)facility->panel->azimuth : 0;
-  const char* forecast_param = osi_get_query_param(_ctx->conn->request, "forecast");
+  const char* forecast_param = osi_get_query_param(req, "forecast");
   bool forecast = !forecast_param || strcmp(forecast_param, "0") != 0;
 
   Weather weather = {0};
   int read_result =
-      sql_helper_read_weather(&server->optimizer_cache, &weather, facility->lat, facility->lon,
+      sql_helper_read_weather(&server->optimizer_cache, &weather, latitude, longitude,
                               panel_tilt, panel_azimuth, forecast, start, end);
-  facility_dispose(configs, facility_count);
+  if (configs) {
+    facility_dispose(configs, facility_count);
+  }
 
   if (read_result != SUCCESS) {
     osi_weather_dispose(&weather);
@@ -1569,13 +1658,38 @@ int osi_get_spot_cache(Osi_RequestCtx* _ctx) {
                             "{\"error\":\"invalid time range\"}");
   }
 
+  HTTP_Request* req = _ctx->conn->request;
+  const char* zone_keys[] = {"energy_zone", "price_class", NULL};
+  const char* zone_param = osi_get_query_param_any(req, zone_keys);
   int zone = 3;
-  const char* zone_param = osi_get_query_param(_ctx->conn->request, "energy_zone");
-  if (!zone_param) {
-    zone_param = osi_get_query_param(_ctx->conn->request, "price_class");
+  bool has_zone = false;
+
+  if (zone_param) {
+    if (!osi_parse_query_int(req, zone_keys, &zone)) {
+      return osi_set_response(_ctx->conn, 400, "application/json",
+                              "{\"error\":\"invalid energy_zone\"}");
+    }
+    has_zone = true;
+  } else {
+    Facility_Config** configs = NULL;
+    Facility_Config* facility = NULL;
+    size_t facility_count = 0;
+    int facility_result = osi_load_request_facility(req, &configs, &facility_count, &facility);
+    if (facility_result == SUCCESS && facility) {
+      zone = ((int)facility->price_class) + 1;
+      has_zone = true;
+    } else if (osi_get_query_param(req, "name") != NULL) {
+      return osi_set_response(_ctx->conn, 404, "application/json",
+                              "{\"error\":\"facility not found\"}");
+    }
+
+    if (configs) {
+      facility_dispose(configs, facility_count);
+    }
   }
-  if (zone_param && zone_param[0] != '\0') {
-    zone = atoi(zone_param);
+
+  if (!has_zone) {
+    zone = 3;
   }
 
   SpotPriceClass price_class = SE3;
@@ -1637,17 +1751,35 @@ int osi_get_display_graph_hour(Osi_RequestCtx* _ctx) {
   }
 
   HTTP_Request* req           = _ctx->conn->request;
-  const char*   facility_name = osi_get_query_param(req, "name");
+  const char*   requested_name = osi_get_query_param(req, "name");
   const char*   range_param   = osi_get_query_param(req, "range");
   char          default_name[128] = {0};
+  char          facility_name_buf[128] = {0};
+  const char*   facility_name = NULL;
 
-  if (!facility_name || facility_name[0] == '\0') {
+  if (!requested_name || requested_name[0] == '\0') {
     int default_result = osi_get_default_facility_name(default_name, sizeof(default_name));
     if (default_result != SUCCESS) {
       return osi_set_response(_ctx->conn, 404, "application/json",
                               "{\"error\":\"no facility available\"}");
     }
     facility_name = default_name;
+  } else {
+    Facility_Config** configs = NULL;
+    Facility_Config* facility = NULL;
+    size_t facility_count = 0;
+    int facility_result = osi_load_request_facility(req, &configs, &facility_count, &facility);
+    if (facility_result != SUCCESS || !facility || !facility->name || facility->name[0] == '\0') {
+      if (configs) {
+        facility_dispose(configs, facility_count);
+      }
+      return osi_set_response(_ctx->conn, 404, "application/json",
+                              "{\"error\":\"facility not found\"}");
+    }
+
+    snprintf(facility_name_buf, sizeof(facility_name_buf), "%s", facility->name);
+    facility_dispose(configs, facility_count);
+    facility_name = facility_name_buf;
   }
 
   char calcs_dir[256] = {0};
