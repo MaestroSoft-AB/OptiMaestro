@@ -31,20 +31,20 @@ static const char* osi_blank_facility_config = "name=\n"
                                                "panel.azimuth=0\n"
                                                "panel.m2_size=0\n";
 
-static int osi_append_text(char** buffer, size_t* used, size_t* capacity, const char* text,
-                           size_t text_len);
-static int osi_get_facility_config_dir(char* dir_out, size_t dir_out_size);
-static int osi_parse_time_range(HTTP_Request* req, time_t* start_out, time_t* end_out);
-static int osi_get_default_facility_name(char* name_out, size_t name_out_size);
-static int osi_load_request_facility(HTTP_Request* req, Facility_Config*** configs_out,
-                                     size_t* count_out, Facility_Config** facility_out);
+static int         osi_append_text(char** buffer, size_t* used, size_t* capacity, const char* text,
+                                   size_t text_len);
+static int         osi_get_facility_config_dir(char* dir_out, size_t dir_out_size);
+static int         osi_parse_time_range(HTTP_Request* req, time_t* start_out, time_t* end_out);
+static int         osi_get_default_facility_name(char* name_out, size_t name_out_size);
+static int         osi_load_request_facility(HTTP_Request* req, Facility_Config*** configs_out,
+                                             size_t* count_out, Facility_Config** facility_out);
 static const char* osi_get_query_param_any(HTTP_Request* req, const char* const* keys);
-static int osi_parse_query_double(HTTP_Request* req, const char* const* keys, double* out);
-static int osi_parse_query_int(HTTP_Request* req, const char* const* keys, int* out);
-static int osi_weather_to_json(const Weather* weather, int forecast, char** body_out);
-static int osi_spots_to_json(const Electricity_Spots* spots, char** body_out);
-static void osi_weather_dispose(Weather* weather);
-static void osi_spots_dispose(Electricity_Spots* spots);
+static int         osi_parse_query_double(HTTP_Request* req, const char* const* keys, double* out);
+static int         osi_parse_query_int(HTTP_Request* req, const char* const* keys, int* out);
+static int         osi_weather_to_json(const Weather* weather, int forecast, char** body_out);
+static int         osi_spots_to_json(const Electricity_Spots* spots, char** body_out);
+static void        osi_weather_dispose(Weather* weather);
+static void        osi_spots_dispose(Electricity_Spots* spots);
 static int osi_parse_meter_reading_json(const char* body, int body_len, Meter_Reading* reading);
 static int osi_meter_reading_to_json(const Meter_Reading* reading, time_t received_at,
                                      char** body_out);
@@ -58,6 +58,51 @@ int osi_on_dispose(void* _context);
 void                    osi_taskwork(void* _context, uint64_t _montime);
 OptiServerInstanceState worktask_request_parse(Opti_Server_Instance* _Instance);
 OptiServerInstanceState worktask_response_build(Opti_Server_Instance* _Instance);
+
+static int osi_weather_to_txt(const Weather* weather, int forecast, char** body_out) {
+  if (!weather || !body_out) {
+    return ERR_INVALID_ARG;
+  }
+
+  *body_out = NULL;
+
+  size_t capacity = 128 + ((size_t)weather->count * 64);
+  char*  body     = (char*)malloc(capacity);
+  if (!body) {
+    return ERR_NO_MEMORY;
+  }
+
+  size_t used = 0;
+
+  int written =
+      snprintf(body, capacity, "M,%u,%d,%d\n", weather->count, forecast, weather->update_interval);
+
+  if (written < 0 || (size_t)written >= capacity) {
+    free(body);
+    return ERR_NO_MEMORY;
+  }
+
+  used = (size_t)written;
+
+  for (unsigned int i = 0; i < weather->count; ++i) {
+    const Weather_Values* value = &weather->values[i];
+
+    written = snprintf(body + used, capacity - used, "V,%lld,%.1f,%.2f,%.1f,%.0f\n",
+                       (long long)value->timestamp, value->temperature, value->precipitation,
+                       value->windspeed, value->radiation_shortwave);
+
+    if (written < 0 || (size_t)written >= capacity - used) {
+      free(body);
+      return ERR_NO_MEMORY;
+    }
+
+    used += (size_t)written;
+  }
+
+  *body_out = body;
+  return SUCCESS;
+}
+
 //----------------------------------------------------
 
 /* Functions to be called on specific path from request */
@@ -263,8 +308,8 @@ static int osi_parse_time_range(HTTP_Request* req, time_t* start_out, time_t* en
     return ERR_INVALID_ARG;
   }
 
-  time_t now = time(NULL);
-  time_t end = now;
+  time_t now   = time(NULL);
+  time_t end   = now;
   time_t start = now - 86400;
 
   const char* range = osi_get_query_param(req, "range");
@@ -279,7 +324,7 @@ static int osi_parse_time_range(HTTP_Request* req, time_t* start_out, time_t* en
   }
 
   const char* from = osi_get_query_param(req, "from");
-  const char* to = osi_get_query_param(req, "to");
+  const char* to   = osi_get_query_param(req, "to");
   if (from && from[0] != '\0') {
     start = (time_t)atoll(from);
   }
@@ -292,7 +337,7 @@ static int osi_parse_time_range(HTTP_Request* req, time_t* start_out, time_t* en
   }
 
   *start_out = start;
-  *end_out = end;
+  *end_out   = end;
   return SUCCESS;
 }
 
@@ -302,12 +347,12 @@ static int osi_load_request_facility(HTTP_Request* req, Facility_Config*** confi
     return ERR_INVALID_ARG;
   }
 
-  *configs_out = NULL;
-  *count_out = 0;
+  *configs_out  = NULL;
+  *count_out    = 0;
   *facility_out = NULL;
 
   char facility_dir[256] = {0};
-  int dir_result = osi_get_facility_config_dir(facility_dir, sizeof(facility_dir));
+  int  dir_result        = osi_get_facility_config_dir(facility_dir, sizeof(facility_dir));
   if (dir_result != SUCCESS) {
     return dir_result;
   }
@@ -324,14 +369,14 @@ static int osi_load_request_facility(HTTP_Request* req, Facility_Config*** confi
         continue;
       }
 
-      *configs_out = configs;
+      *configs_out  = configs;
       *facility_out = configs[i];
       return SUCCESS;
     }
   } else {
     for (size_t i = 0; i < *count_out; ++i) {
       if (configs[i] && configs[i]->name && strcmp(configs[i]->name, requested_name) == 0) {
-        *configs_out = configs;
+        *configs_out  = configs;
         *facility_out = configs[i];
         return SUCCESS;
       }
@@ -403,9 +448,9 @@ static int osi_weather_to_json(const Weather* weather, int forecast, char** body
     return ERR_INVALID_ARG;
   }
 
-  *body_out = NULL;
-  cJSON* root = cJSON_CreateObject();
-  cJSON* meta = cJSON_CreateObject();
+  *body_out     = NULL;
+  cJSON* root   = cJSON_CreateObject();
+  cJSON* meta   = cJSON_CreateObject();
   cJSON* values = cJSON_CreateArray();
   if (!root || !meta || !values) {
     cJSON_Delete(root);
@@ -435,7 +480,7 @@ static int osi_weather_to_json(const Weather* weather, int forecast, char** body
 
   for (unsigned int i = 0; i < weather->count; ++i) {
     const Weather_Values* value = &weather->values[i];
-    cJSON* item = cJSON_CreateObject();
+    cJSON*                item  = cJSON_CreateObject();
     if (!item) {
       cJSON_Delete(root);
       return ERR_NO_MEMORY;
@@ -471,8 +516,8 @@ static int osi_spots_to_json(const Electricity_Spots* spots, char** body_out) {
     return ERR_INVALID_ARG;
   }
 
-  *body_out = NULL;
-  cJSON* root = cJSON_CreateObject();
+  *body_out     = NULL;
+  cJSON* root   = cJSON_CreateObject();
   cJSON* prices = cJSON_CreateArray();
   if (!root || !prices) {
     cJSON_Delete(root);
@@ -487,7 +532,7 @@ static int osi_spots_to_json(const Electricity_Spots* spots, char** body_out) {
 
   for (unsigned int i = 0; i < spots->price_count; ++i) {
     const Electricity_Spot_Price* price = &spots->prices[i];
-    cJSON* item = cJSON_CreateObject();
+    cJSON*                        item  = cJSON_CreateObject();
     if (!item) {
       cJSON_Delete(root);
       return ERR_NO_MEMORY;
@@ -1550,40 +1595,39 @@ int osi_get_weather_cache(Osi_RequestCtx* _ctx) {
     return ERR_INVALID_ARG;
   }
 
-  time_t start = 0;
-  time_t end = 0;
-  int range_result = osi_parse_time_range(_ctx->conn->request, &start, &end);
+  time_t start        = 0;
+  time_t end          = 0;
+  int    range_result = osi_parse_time_range(_ctx->conn->request, &start, &end);
   if (range_result != SUCCESS) {
     return osi_set_response(_ctx->conn, 400, "application/json",
                             "{\"error\":\"invalid time range\"}");
   }
 
-  HTTP_Request* req = _ctx->conn->request;
-  Facility_Config** configs = NULL;
-  Facility_Config* facility = NULL;
-  size_t facility_count = 0;
-  float latitude = 0.0f;
-  float longitude = 0.0f;
-  int panel_tilt = 0;
-  unsigned int panel_azimuth = 0;
-  int facility_result =
-      osi_load_request_facility(req, &configs, &facility_count, &facility);
+  HTTP_Request*     req            = _ctx->conn->request;
+  Facility_Config** configs        = NULL;
+  Facility_Config*  facility       = NULL;
+  size_t            facility_count = 0;
+  float             latitude       = 0.0f;
+  float             longitude      = 0.0f;
+  int               panel_tilt     = 0;
+  unsigned int      panel_azimuth  = 0;
+  int facility_result = osi_load_request_facility(req, &configs, &facility_count, &facility);
   if (facility_result == SUCCESS && facility) {
-    latitude = facility->lat;
-    longitude = facility->lon;
-    panel_tilt = facility->panel ? facility->panel->tilt : 0;
+    latitude      = facility->lat;
+    longitude     = facility->lon;
+    panel_tilt    = facility->panel ? facility->panel->tilt : 0;
     panel_azimuth = facility->panel ? (unsigned int)facility->panel->azimuth : 0;
   } else {
-    const char* latitude_keys[] = {"latitude", "lat", NULL};
+    const char* latitude_keys[]  = {"latitude", "lat", NULL};
     const char* longitude_keys[] = {"longitude", "lon", NULL};
-    const char* tilt_keys[] = {"panel_tilt", "panel.tilt", NULL};
-    const char* azimuth_keys[] = {"panel_azimuth", "panel.azimuth", NULL};
-    const char* latitude_param = osi_get_query_param_any(req, latitude_keys);
-    const char* longitude_param = osi_get_query_param_any(req, longitude_keys);
-    double latitude_value = 0.0;
-    double longitude_value = 0.0;
-    int parsed_tilt = 0;
-    int parsed_azimuth = 0;
+    const char* tilt_keys[]      = {"panel_tilt", "panel.tilt", NULL};
+    const char* azimuth_keys[]   = {"panel_azimuth", "panel.azimuth", NULL};
+    const char* latitude_param   = osi_get_query_param_any(req, latitude_keys);
+    const char* longitude_param  = osi_get_query_param_any(req, longitude_keys);
+    double      latitude_value   = 0.0;
+    double      longitude_value  = 0.0;
+    int         parsed_tilt      = 0;
+    int         parsed_azimuth   = 0;
 
     if (!latitude_param || !longitude_param) {
       return osi_set_response(_ctx->conn, 404, "application/json",
@@ -1605,19 +1649,18 @@ int osi_get_weather_cache(Osi_RequestCtx* _ctx) {
                               "{\"error\":\"invalid panel_azimuth\"}");
     }
 
-    latitude = (float)latitude_value;
-    longitude = (float)longitude_value;
-    panel_tilt = parsed_tilt;
+    latitude      = (float)latitude_value;
+    longitude     = (float)longitude_value;
+    panel_tilt    = parsed_tilt;
     panel_azimuth = (unsigned int)(parsed_azimuth < 0 ? 0 : parsed_azimuth);
   }
 
   const char* forecast_param = osi_get_query_param(req, "forecast");
-  bool forecast = !forecast_param || strcmp(forecast_param, "0") != 0;
+  bool        forecast       = !forecast_param || strcmp(forecast_param, "0") != 0;
 
   Weather weather = {0};
-  int read_result =
-      sql_helper_read_weather(&server->optimizer_cache, &weather, latitude, longitude,
-                              panel_tilt, panel_azimuth, forecast, start, end);
+  int read_result = sql_helper_read_weather(&server->optimizer_cache, &weather, latitude, longitude,
+                                            panel_tilt, panel_azimuth, forecast, start, end);
   if (configs) {
     facility_dispose(configs, facility_count);
   }
@@ -1628,14 +1671,16 @@ int osi_get_weather_cache(Osi_RequestCtx* _ctx) {
   }
 
   char* body = NULL;
-  int json_result = osi_weather_to_json(&weather, forecast ? 1 : 0, &body);
+
+  int txt_result = osi_weather_to_txt(&weather, forecast ? 1 : 0, &body);
+  // int   json_result = osi_weather_to_json(&weather, forecast ? 1 : 0, &body);
   osi_weather_dispose(&weather);
-  if (json_result != SUCCESS) {
+  if (txt_result != SUCCESS) {
     free(body);
-    return json_result;
+    return txt_result;
   }
 
-  int res = osi_set_response(_ctx->conn, 200, "application/json", body);
+  int res = osi_set_response(_ctx->conn, 200, "text/plain", body);
   free(body);
   return res;
 }
@@ -1650,19 +1695,19 @@ int osi_get_spot_cache(Osi_RequestCtx* _ctx) {
     return ERR_INVALID_ARG;
   }
 
-  time_t start = 0;
-  time_t end = 0;
-  int range_result = osi_parse_time_range(_ctx->conn->request, &start, &end);
+  time_t start        = 0;
+  time_t end          = 0;
+  int    range_result = osi_parse_time_range(_ctx->conn->request, &start, &end);
   if (range_result != SUCCESS) {
     return osi_set_response(_ctx->conn, 400, "application/json",
                             "{\"error\":\"invalid time range\"}");
   }
 
-  HTTP_Request* req = _ctx->conn->request;
-  const char* zone_keys[] = {"energy_zone", "price_class", NULL};
-  const char* zone_param = osi_get_query_param_any(req, zone_keys);
-  int zone = 3;
-  bool has_zone = false;
+  HTTP_Request* req         = _ctx->conn->request;
+  const char*   zone_keys[] = {"energy_zone", "price_class", NULL};
+  const char*   zone_param  = osi_get_query_param_any(req, zone_keys);
+  int           zone        = 3;
+  bool          has_zone    = false;
 
   if (zone_param) {
     if (!osi_parse_query_int(req, zone_keys, &zone)) {
@@ -1671,12 +1716,12 @@ int osi_get_spot_cache(Osi_RequestCtx* _ctx) {
     }
     has_zone = true;
   } else {
-    Facility_Config** configs = NULL;
-    Facility_Config* facility = NULL;
-    size_t facility_count = 0;
+    Facility_Config** configs        = NULL;
+    Facility_Config*  facility       = NULL;
+    size_t            facility_count = 0;
     int facility_result = osi_load_request_facility(req, &configs, &facility_count, &facility);
     if (facility_result == SUCCESS && facility) {
-      zone = ((int)facility->price_class) + 1;
+      zone     = ((int)facility->price_class) + 1;
       has_zone = true;
     } else if (osi_get_query_param(req, "name") != NULL) {
       return osi_set_response(_ctx->conn, 404, "application/json",
@@ -1700,15 +1745,15 @@ int osi_get_spot_cache(Osi_RequestCtx* _ctx) {
   }
 
   Electricity_Spots spots = {0};
-  int read_result =
+  int               read_result =
       sql_helper_read_spots(&server->optimizer_cache, &spots, price_class, SPOT_SEK, start, end);
   if (read_result != SUCCESS) {
     osi_spots_dispose(&spots);
     return read_result;
   }
 
-  char* body = NULL;
-  int json_result = osi_spots_to_json(&spots, &body);
+  char* body        = NULL;
+  int   json_result = osi_spots_to_json(&spots, &body);
   osi_spots_dispose(&spots);
   if (json_result != SUCCESS) {
     free(body);
@@ -1750,12 +1795,12 @@ int osi_get_display_graph_hour(Osi_RequestCtx* _ctx) {
     return ERR_INVALID_ARG;
   }
 
-  HTTP_Request* req           = _ctx->conn->request;
-  const char*   requested_name = osi_get_query_param(req, "name");
-  const char*   range_param   = osi_get_query_param(req, "range");
-  char          default_name[128] = {0};
+  HTTP_Request* req                    = _ctx->conn->request;
+  const char*   requested_name         = osi_get_query_param(req, "name");
+  const char*   range_param            = osi_get_query_param(req, "range");
+  char          default_name[128]      = {0};
   char          facility_name_buf[128] = {0};
-  const char*   facility_name = NULL;
+  const char*   facility_name          = NULL;
 
   if (!requested_name || requested_name[0] == '\0') {
     int default_result = osi_get_default_facility_name(default_name, sizeof(default_name));
@@ -1765,9 +1810,9 @@ int osi_get_display_graph_hour(Osi_RequestCtx* _ctx) {
     }
     facility_name = default_name;
   } else {
-    Facility_Config** configs = NULL;
-    Facility_Config* facility = NULL;
-    size_t facility_count = 0;
+    Facility_Config** configs        = NULL;
+    Facility_Config*  facility       = NULL;
+    size_t            facility_count = 0;
     int facility_result = osi_load_request_facility(req, &configs, &facility_count, &facility);
     if (facility_result != SUCCESS || !facility || !facility->name || facility->name[0] == '\0') {
       if (configs) {
@@ -1803,8 +1848,8 @@ int osi_get_display_graph_hour(Osi_RequestCtx* _ctx) {
   }
 
   char filename[512];
-  int  len = snprintf(filename, sizeof(filename), "%s/%s-Consumption_%s-display%s.json",
-                      calcs_dir, facility_name, date, suffix);
+  int  len = snprintf(filename, sizeof(filename), "%s/%s-Consumption_%s-display%s.json", calcs_dir,
+                      facility_name, date, suffix);
   if (len < 0 || (size_t)len >= sizeof(filename)) {
     return osi_set_response(_ctx->conn, 500, "application/json",
                             "{\"error\":\"failed to format display graph filename\"}");
