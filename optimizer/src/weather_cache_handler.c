@@ -26,8 +26,7 @@ int wch_write_cache_json(const Weather* _Weather, const char* _cache_path);
 
 /* ---------------------------------------------------------------- */
 
-int wch_init(WCH* _WCH, const WCH_Conf* _Conf)
-{
+int wch_init(WCH* _WCH, const WCH_Conf* _Conf) {
   memset(_WCH, 0, sizeof(WCH));
   memset(&_WCH->weather, 0, sizeof(Weather));
 
@@ -39,26 +38,25 @@ int wch_init(WCH* _WCH, const WCH_Conf* _Conf)
   //   _WCH->conf.data_dir = _Conf->data_dir;
   // }
 
-  _WCH->conf.forecast = _Conf->forecast;
-  _WCH->conf.latitude = _Conf->latitude;
-  _WCH->conf.longitude = _Conf->longitude;
+  _WCH->conf.forecast      = _Conf->forecast;
+  _WCH->conf.latitude      = _Conf->latitude;
+  _WCH->conf.longitude     = _Conf->longitude;
   _WCH->conf.panel_azimuth = _Conf->panel_azimuth;
-  _WCH->conf.panel_tilt = _Conf->panel_tilt;
-  _WCH->conf.sqlhelper = _Conf->sqlhelper;
+  _WCH->conf.panel_tilt    = _Conf->panel_tilt;
+  _WCH->conf.sqlhelper     = _Conf->sqlhelper;
 
   return SUCCESS;
 }
 
-int wch_update_cache(WCH* _WCH)
-{
-  _WCH->weather.latitude = _WCH->conf.latitude;
-  _WCH->weather.longitude = _WCH->conf.longitude;
-  _WCH->weather.panel_tilt = _WCH->conf.panel_tilt;
+int wch_update_cache(WCH* _WCH) {
+  _WCH->weather.latitude      = _WCH->conf.latitude;
+  _WCH->weather.longitude     = _WCH->conf.longitude;
+  _WCH->weather.panel_tilt    = _WCH->conf.panel_tilt;
   _WCH->weather.panel_azimuth = _WCH->conf.panel_azimuth;
 
-  time_t now = time(NULL);
+  time_t now         = time(NULL);
   time_t range_start = now;
-  time_t range_end = now + (7 * 86400);
+  time_t range_end   = now + (7 * 86400);
 
   if (_WCH->conf.forecast) {
     if (meteo_get_15_minutely(&_WCH->weather, (float)_WCH->conf.latitude,
@@ -75,9 +73,9 @@ int wch_update_cache(WCH* _WCH)
     }
   }
 
-  _WCH->weather.latitude = _WCH->conf.latitude;
-  _WCH->weather.longitude = _WCH->conf.longitude;
-  _WCH->weather.panel_tilt = _WCH->conf.panel_tilt;
+  _WCH->weather.latitude      = _WCH->conf.latitude;
+  _WCH->weather.longitude     = _WCH->conf.longitude;
+  _WCH->weather.panel_tilt    = _WCH->conf.panel_tilt;
   _WCH->weather.panel_azimuth = _WCH->conf.panel_azimuth;
 
   int res = sql_helper_insert_weather(_WCH->conf.sqlhelper, &_WCH->weather, _WCH->conf.forecast);
@@ -91,8 +89,7 @@ int wch_update_cache(WCH* _WCH)
 
 /* Define and return the cache path from given parameters */
 /* TODO: create recursive directories for year/month */
-char* wch_get_cache_json_filepath(const char* _base_path, time_t _start_date, bool _forecast)
-{
+char* wch_get_cache_json_filepath(const char* _base_path, time_t _start_date, bool _forecast) {
   char path_buf[512];
 
   /* Set timestamp */
@@ -120,8 +117,7 @@ char* wch_get_cache_json_filepath(const char* _base_path, time_t _start_date, bo
   return path;
 }
 
-int wch_validate_cache(const char* _cache_path)
-{
+int wch_validate_cache(const char* _cache_path) {
   if (!_cache_path)
     return ERR_INVALID_ARG;
 
@@ -132,8 +128,7 @@ int wch_validate_cache(const char* _cache_path)
   return ERR_NOT_FOUND;
 }
 
-int wch_write_cache_json(const Weather* _Weather, const char* _cache_path)
-{
+int wch_write_cache_json(const Weather* _Weather, const char* _cache_path) {
   if (!_Weather || !_cache_path)
     return ERR_INVALID_ARG;
 
@@ -167,8 +162,8 @@ int wch_write_cache_json(const Weather* _Weather, const char* _cache_path)
 
   unsigned int i;
   for (i = 0; i < _Weather->count; i++) {
-    Weather_Values Vals = _Weather->values[i];
-    cJSON* Json_Object = cJSON_CreateObject();
+    Weather_Values Vals        = _Weather->values[i];
+    cJSON*         Json_Object = cJSON_CreateObject();
 
     const char* timestamp = parse_epoch_to_iso_full_datetime_string(&Vals.timestamp, 0);
     cJSON_AddStringToObject(Json_Object, "timestamp", timestamp);
@@ -202,8 +197,7 @@ int wch_write_cache_json(const Weather* _Weather, const char* _cache_path)
   return SUCCESS;
 }
 
-int wch_read_cache_json(Weather* _W, const char* _cache_path)
-{
+int wch_read_cache_json(Weather* _W, const char* _cache_path) {
   if (!_W || !_cache_path)
     return ERR_INVALID_ARG;
 
@@ -230,22 +224,22 @@ int wch_read_cache_json(Weather* _W, const char* _cache_path)
   cJSON* Json_Meta = cJSON_GetObjectItemCaseSensitive(Json_Root, "meta");
   if (Json_Meta && cJSON_IsObject(Json_Meta)) {
     _W->update_interval = json_get_int(Json_Meta, "interval_minutes");
-    _W->latitude = json_get_double(Json_Meta, "latitude");
-    _W->longitude = json_get_double(Json_Meta, "longitude");
-    _W->panel_azimuth = json_get_double(Json_Meta, "solar_panel_azimuth");
-    _W->panel_tilt = json_get_double(Json_Meta, "solar_panel_tilt");
+    _W->latitude        = json_get_double(Json_Meta, "latitude");
+    _W->longitude       = json_get_double(Json_Meta, "longitude");
+    _W->panel_azimuth   = json_get_double(Json_Meta, "solar_panel_azimuth");
+    _W->panel_tilt      = json_get_double(Json_Meta, "solar_panel_tilt");
 
-    _W->temperature_unit = strdup(json_get_string(Json_Meta, "temperature_unit"));
-    _W->windspeed_unit = strdup(json_get_string(Json_Meta, "windspeed_unit"));
+    _W->temperature_unit   = strdup(json_get_string(Json_Meta, "temperature_unit"));
+    _W->windspeed_unit     = strdup(json_get_string(Json_Meta, "windspeed_unit"));
     _W->precipitation_unit = strdup(json_get_string(Json_Meta, "precipitation_unit"));
     _W->winddirection_unit = strdup(json_get_string(Json_Meta, "winddirection_unit"));
-    _W->radiation_unit = strdup(json_get_string(Json_Meta, "radiation_unit"));
+    _W->radiation_unit     = strdup(json_get_string(Json_Meta, "radiation_unit"));
   }
 
   cJSON* Json_Values = cJSON_GetObjectItemCaseSensitive(Json_Root, "values");
   if (cJSON_IsArray(Json_Values)) {
     unsigned int count = (unsigned int)cJSON_GetArraySize(Json_Values);
-    _W->count = count;
+    _W->count          = count;
 
     if (_W->values != NULL)
       free(_W->values); // free if still allocated
@@ -268,16 +262,16 @@ int wch_read_cache_json(Weather* _W, const char* _cache_path)
       if (timestamp_str && strcmp(timestamp_str, "Unknown") != 0)
         Vals.timestamp = parse_iso_full_datetime_string_to_epoch(timestamp_str);
 
-      Vals.temperature = json_get_double(Json_Object, "temperature");
-      Vals.windspeed = json_get_double(Json_Object, "windspeed");
+      Vals.temperature           = json_get_double(Json_Object, "temperature");
+      Vals.windspeed             = json_get_double(Json_Object, "windspeed");
       Vals.winddirection_azimuth = json_get_double(Json_Object, "winddirection");
-      Vals.precipitation = json_get_double(Json_Object, "precipitation");
-      Vals.radiation_direct = json_get_double(Json_Object, "radiation_direct");
-      Vals.radiation_direct_n = json_get_double(Json_Object, "radiation_direct_n");
-      Vals.radiation_diffuse = json_get_double(Json_Object, "radiation_diffuse");
-      Vals.radiation_shortwave = json_get_double(Json_Object, "radiation_shortwave");
-      Vals.radiation_tilted = json_get_double(Json_Object, "radiation_tilted");
-      Vals.sun_duration = json_get_double(Json_Object, "sun_duration");
+      Vals.precipitation         = json_get_double(Json_Object, "precipitation");
+      Vals.radiation_direct      = json_get_double(Json_Object, "radiation_direct");
+      Vals.radiation_direct_n    = json_get_double(Json_Object, "radiation_direct_n");
+      Vals.radiation_diffuse     = json_get_double(Json_Object, "radiation_diffuse");
+      Vals.radiation_shortwave   = json_get_double(Json_Object, "radiation_shortwave");
+      Vals.radiation_tilted      = json_get_double(Json_Object, "radiation_tilted");
+      Vals.sun_duration          = json_get_double(Json_Object, "sun_duration");
 
       _W->values[i] = Vals;
     }
@@ -291,8 +285,7 @@ int wch_read_cache_json(Weather* _W, const char* _cache_path)
 
 int wch_get_weather_range(SqlHelper* _H, Weather* _W, double _latitude, double _longitude,
                           int _panel_tilt, unsigned int _panel_azimuth, bool _forecast,
-                          time_t _start, time_t _end)
-{
+                          time_t _start, time_t _end) {
   if (!_H || !_W) {
     return ERR_INVALID_ARG;
   }
@@ -301,27 +294,32 @@ int wch_get_weather_range(SqlHelper* _H, Weather* _W, double _latitude, double _
                                  _forecast, _start, _end);
 }
 
-void wch_weather_dispose(Weather* _W)
-{
-  if (_W != NULL) {
-    if (_W->temperature_unit != NULL)
-      free((void*)_W->temperature_unit);
-    if (_W->windspeed_unit != NULL)
-      free((void*)_W->windspeed_unit);
-    if (_W->precipitation_unit != NULL)
-      free((void*)_W->precipitation_unit);
-    if (_W->winddirection_unit != NULL)
-      free((void*)_W->winddirection_unit);
-    if (_W->radiation_unit != NULL)
-      free((void*)_W->radiation_unit);
+void wch_weather_dispose(Weather* _W) {
+  if (_W == NULL)
+    return;
 
-    if (_W->values != NULL)
-      free(_W->values);
-  }
+  free((void*)_W->temperature_unit);
+  _W->temperature_unit = NULL;
+
+  free((void*)_W->windspeed_unit);
+  _W->windspeed_unit = NULL;
+
+  free((void*)_W->precipitation_unit);
+  _W->precipitation_unit = NULL;
+
+  free((void*)_W->winddirection_unit);
+  _W->winddirection_unit = NULL;
+
+  free((void*)_W->radiation_unit);
+  _W->radiation_unit = NULL;
+
+  free(_W->values);
+  _W->values = NULL;
+
+  _W->count = 0;
 }
 
-void wch_dispose(WCH* _WCH)
-{
+void wch_dispose(WCH* _WCH) {
   if (_WCH->data_path != NULL)
     free((void*)_WCH->data_path);
 
