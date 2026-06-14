@@ -80,9 +80,12 @@ typedef struct
   double max_avg_power_w;
 } Historical_Daily_Series;
 
-static int    create_facility_report(const Calc_Args* _Args, const Facility_Config* _F);
-static int    build_profile(Consumption_Profile* _P, SqlHelper* _Sql, const Facility_Config* _F,
-                            const char* _data_dir, int _history_days);
+static int    create_facility_report(const Calc_Args* _Args, const Facility_Config* _F,
+                                     const Consumption_Profile* _base_profile,
+                                     const Meter_Reading_Row* _rows, size_t _count);
+static int    load_global_meter_rows(Meter_Reading_Row** _rows, size_t* _count, int _history_days);
+static int    build_profile(Consumption_Profile* _P, const Meter_Reading_Row* _rows, size_t _count,
+                            int _history_days);
 static int    accumulate_readings(Consumption_Profile* _P, const Meter_Reading_Row* _rows,
                                   size_t _count, time_t _today_start, time_t _tomorrow_start,
                                   int _history_days);
@@ -93,10 +96,12 @@ static int    estimate_tomorrow_spots(SqlHelper* _Sql, Electricity_Spots* _out,
                                       const char* _data_dir, time_t _tomorrow_start,
                                       Tomorrow_Spot_Source* _source);
 static int    write_history_display_report(const Calc_Args* _Args, const Facility_Config* _F,
-                                           int _history_days, const char* _suffix);
+                                           int _history_days, const char* _suffix,
+                                           const Meter_Reading_Row* _rows, size_t _count);
 static int    build_daily_history_series(Historical_Daily_Series* _S, SqlHelper* _Sql,
                                          const Facility_Config* _F, const char* _data_dir,
-                                         int _history_days);
+                                         int _history_days, const Meter_Reading_Row* _rows,
+                                         size_t _count);
 static int    read_weather_summary(SqlHelper* _Sql, const Facility_Config* _F, time_t _start,
                                    Weather_Day_Summary* _summary);
 static double weather_similarity(const Weather_Day_Summary* _target,
@@ -141,9 +146,25 @@ int consumption_analysis_create_reports(const Calc_Args* _Args) {
 
   create_directory_if_not_exists(_Args->calcs_dir);
 
-  int result = SUCCESS;
+  Meter_Reading_Row* rows = NULL;
+  size_t count = 0;
+  int result = load_global_meter_rows(&rows, &count, PROFILE_HISTORY_MAX_DAYS);
+  if (result != SUCCESS) {
+    LOG_WARN("consumption analysis skipped: global meter readings unavailable (%i)", result);
+    return result;
+  }
+
+  Consumption_Profile base_profile = {0};
+  result = build_profile(&base_profile, rows, count, PROFILE_HISTORY_DEFAULT_DAYS);
+  if (result != SUCCESS) {
+    meter_store_rows_dispose(&rows, &count);
+    LOG_WARN("consumption analysis skipped: global consumption profile unavailable (%i)", result);
+    return result;
+  }
+
+  result = SUCCESS;
   for (size_t i = 0; i < _Args->facility_count; i++) {
-    int res = create_facility_report(_Args, _Args->facility_configs[i]);
+    int res = create_facility_report(_Args, _Args->facility_configs[i], &base_profile, rows, count);
     if (res != SUCCESS) {
       LOG_WARN("consumption analysis skipped for facility %s (%i)",
                _Args->facility_configs[i] ? _Args->facility_configs[i]->name : "-", res);
@@ -151,20 +172,18 @@ int consumption_analysis_create_reports(const Calc_Args* _Args) {
     }
   }
 
+  meter_store_rows_dispose(&rows, &count);
   return result;
 }
 
-static int create_facility_report(const Calc_Args* _Args, const Facility_Config* _F) {
-  if (!_Args || !_F) {
+static int create_facility_report(const Calc_Args* _Args, const Facility_Config* _F,
+                                  const Consumption_Profile* _base_profile,
+                                  const Meter_Reading_Row* _rows, size_t _count) {
+  if (!_Args || !_F || !_base_profile || !_rows || _count == 0) {
     return ERR_INVALID_ARG;
   }
 
-  Consumption_Profile profile = {0};
-  int res = build_profile(&profile, _Args->sqlhelper, _F, _Args->data_dir,
-                          PROFILE_HISTORY_DEFAULT_DAYS);
-  if (res != SUCCESS) {
-    return res;
-  }
+  Consumption_Profile profile = *_base_profile;
 
   Electricity_Spots today = {0};
   Electricity_Spots tomorrow = {0};
@@ -173,7 +192,7 @@ static int create_facility_report(const Calc_Args* _Args, const Facility_Config*
   time_t today_start = epoch_now_day();
   time_t tomorrow_start = today_start + 86400;
 
-  res = load_spots(_Args->sqlhelper, &today, _F, _Args->data_dir, today_start - 3600, true);
+  int res = load_spots(_Args->sqlhelper, &today, _F, _Args->data_dir, today_start - 3600, true);
   if (res != SUCCESS) {
     return res;
   }
@@ -256,14 +275,14 @@ static int create_facility_report(const Calc_Args* _Args, const Facility_Config*
   free(today.prices);
 
   if (res == SUCCESS) {
-    int history_res = write_history_display_report(_Args, _F, 7, "-7d");
+    int history_res = write_history_display_report(_Args, _F, 7, "-7d", _rows, _count);
     if (history_res != SUCCESS) {
       LOG_WARN("7d display report skipped for facility %s (%i)", _F->name, history_res);
     }
   }
 
   if (res == SUCCESS) {
-    int history_res = write_history_display_report(_Args, _F, 30, "-30d");
+    int history_res = write_history_display_report(_Args, _F, 30, "-30d", _rows, _count);
     if (history_res != SUCCESS) {
       LOG_WARN("30d display report skipped for facility %s (%i)", _F->name, history_res);
     }
@@ -272,15 +291,13 @@ static int create_facility_report(const Calc_Args* _Args, const Facility_Config*
   return res;
 }
 
-static int build_profile(Consumption_Profile* _P, SqlHelper* _Sql, const Facility_Config* _F,
-                         const char* _data_dir, int _history_days) {
-  (void)_Sql;
-  (void)_F;
-  (void)_data_dir;
-
-  if (_history_days < 1 || _history_days > PROFILE_HISTORY_MAX_DAYS) {
+static int load_global_meter_rows(Meter_Reading_Row** _rows, size_t* _count, int _history_days) {
+  if (!_rows || !_count || _history_days < 1 || _history_days > PROFILE_HISTORY_MAX_DAYS) {
     return ERR_INVALID_ARG;
   }
+
+  *_rows = NULL;
+  *_count = 0;
 
   Meter_Reading_Store store;
   int res = meter_store_init(&store);
@@ -298,20 +315,23 @@ static int build_profile(Consumption_Profile* _P, SqlHelper* _Sql, const Facilit
   time_t tomorrow_start = today_start + 86400;
   time_t history_start = today_start - ((time_t)_history_days * 86400);
 
-  Meter_Reading_Row* rows = NULL;
-  size_t count = 0;
-  res = meter_store_read_range(&store, history_start, tomorrow_start, &rows, &count);
+  res = meter_store_read_range(&store, history_start, tomorrow_start, _rows, _count);
   meter_store_close(&store);
-  if (res != SUCCESS) {
-    meter_store_dispose(&store);
-    return res;
+  meter_store_dispose(&store);
+  return res;
+}
+
+static int build_profile(Consumption_Profile* _P, const Meter_Reading_Row* _rows, size_t _count,
+                         int _history_days) {
+  if (!_P || _history_days < 1 || _history_days > PROFILE_HISTORY_MAX_DAYS) {
+    return ERR_INVALID_ARG;
   }
 
-  res = accumulate_readings(_P, rows, count, today_start, tomorrow_start, _history_days);
-  meter_store_rows_dispose(&rows, &count);
-  meter_store_dispose(&store);
+  memset(_P, 0, sizeof(*_P));
 
-  return res;
+  time_t today_start = epoch_now_day();
+  time_t tomorrow_start = today_start + 86400;
+  return accumulate_readings(_P, _rows, _count, today_start, tomorrow_start, _history_days);
 }
 
 static int accumulate_readings(Consumption_Profile* _P, const Meter_Reading_Row* _rows,
@@ -425,9 +445,10 @@ static int load_spots(SqlHelper* _Sql, Electricity_Spots* _S, const Facility_Con
 
 static int build_daily_history_series(Historical_Daily_Series* _S, SqlHelper* _Sql,
                                       const Facility_Config* _F, const char* _data_dir,
-                                      int _history_days) {
+                                      int _history_days, const Meter_Reading_Row* _rows,
+                                      size_t _count) {
   if (!_S || !_Sql || !_F || !_data_dir || _history_days < 1 ||
-      _history_days > PROFILE_HISTORY_MAX_DAYS) {
+      _history_days > PROFILE_HISTORY_MAX_DAYS || !_rows || _count == 0) {
     return ERR_INVALID_ARG;
   }
 
@@ -441,32 +462,11 @@ static int build_daily_history_series(Historical_Daily_Series* _S, SqlHelper* _S
     _S->timestamps[i] = range_start + ((time_t)i * 86400);
   }
 
-  Meter_Reading_Store store;
-  int res = meter_store_init(&store);
-  if (res != SUCCESS) {
-    return res;
-  }
-
-  res = meter_store_open(&store, METER_READING_STORE_DEFAULT_DB_PATH, true);
-  if (res != SUCCESS) {
-    meter_store_dispose(&store);
-    return res;
-  }
-
-  Meter_Reading_Row* rows = NULL;
-  size_t count = 0;
-  res = meter_store_read_range(&store, range_start, tomorrow_start, &rows, &count);
-  meter_store_close(&store);
-  meter_store_dispose(&store);
-  if (res != SUCCESS) {
-    return res;
-  }
-
-  for (size_t i = 1; i < count; i++) {
-    const Meter_Reading* prev = &rows[i - 1].reading;
-    const Meter_Reading* cur = &rows[i].reading;
-    time_t from = rows[i - 1].received_at;
-    time_t to = rows[i].received_at;
+  for (size_t i = 1; i < _count; i++) {
+    const Meter_Reading* prev = &_rows[i - 1].reading;
+    const Meter_Reading* cur = &_rows[i].reading;
+    time_t from = _rows[i - 1].received_at;
+    time_t to = _rows[i].received_at;
 
     if (to <= from || (to - from) > 7200) {
       continue;
@@ -496,11 +496,9 @@ static int build_daily_history_series(Historical_Daily_Series* _S, SqlHelper* _S
     _S->kwh[day_index] += kwh;
   }
 
-  meter_store_rows_dispose(&rows, &count);
-
   Electricity_Spots spots = {0};
-  res = ech_get_spots_range(_Sql, &spots, _data_dir, _F->price_class, _F->currency,
-                            range_start, tomorrow_start);
+  int res = ech_get_spots_range(_Sql, &spots, _data_dir, _F->price_class, _F->currency,
+                                range_start, tomorrow_start);
   if (res == SUCCESS && spots.prices && spots.price_count > 0) {
     double price_sum[PROFILE_HISTORY_MAX_DAYS] = {0};
     int price_count[PROFILE_HISTORY_MAX_DAYS] = {0};
@@ -543,14 +541,15 @@ static int build_daily_history_series(Historical_Daily_Series* _S, SqlHelper* _S
 }
 
 static int write_history_display_report(const Calc_Args* _Args, const Facility_Config* _F,
-                                        int _history_days, const char* _suffix) {
-  if (!_Args || !_F || !_suffix) {
+                                        int _history_days, const char* _suffix,
+                                        const Meter_Reading_Row* _rows, size_t _count) {
+  if (!_Args || !_F || !_suffix || !_rows || _count == 0) {
     return ERR_INVALID_ARG;
   }
 
   Historical_Daily_Series series = {0};
   int res = build_daily_history_series(&series, _Args->sqlhelper, _F, _Args->data_dir,
-                                       _history_days);
+                                       _history_days, _rows, _count);
   if (res != SUCCESS) {
     return res;
   }

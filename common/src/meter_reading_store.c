@@ -6,6 +6,7 @@
 #include <string.h>
 
 #define SQL_CHECK_DB(_db, _msg) fprintf(stderr, "[SQL] %s: %s\n", _msg, sqlite3_errmsg(_db))
+#define METER_STORE_BUSY_TIMEOUT_MS 5000
 
 static void meter_store_copy_column_text(sqlite3_stmt* _stmt, int _col, char* _dest,
                                          size_t _size);
@@ -46,6 +47,22 @@ int meter_store_open(Meter_Reading_Store* _S, const char* _path, bool _readonly)
     SQL_CHECK_DB(_S->db, "meter_store_open failed");
     pthread_mutex_unlock(&_S->mutex);
     return ERR_FATAL;
+  }
+
+  sqlite3_busy_timeout(_S->db, METER_STORE_BUSY_TIMEOUT_MS);
+
+  if (!_readonly) {
+    char* err = NULL;
+    if (sqlite3_exec(_S->db, "PRAGMA journal_mode=WAL;", NULL, NULL, &err) != SQLITE_OK) {
+      if (err) {
+        fprintf(stderr, "[SQL] meter_store_open WAL failed: %s\n", err);
+        sqlite3_free(err);
+      }
+      sqlite3_close(_S->db);
+      _S->db = NULL;
+      pthread_mutex_unlock(&_S->mutex);
+      return ERR_FATAL;
+    }
   }
 
   pthread_mutex_unlock(&_S->mutex);
