@@ -58,19 +58,9 @@ int wch_update_cache(WCH* _WCH)
   _WCH->weather.panel_tilt = _WCH->conf.panel_tilt;
   _WCH->weather.panel_azimuth = _WCH->conf.panel_azimuth;
 
-  time_t today = epoch_now_day();
-  time_t tmrw = today + 86400;
-
-  time_t target_day = today;
-  int update_hour = 13;
-
-  if (time_is_at_or_after_hour(update_hour)) {
-    target_day = tmrw;
-  } else {
-    target_day = today;
-  }
-  time_t range_start = target_day - 3600;
-  time_t range_end = range_start + 86400;
+  time_t now = time(NULL);
+  time_t range_start = now;
+  time_t range_end = now + (7 * 86400);
 
   if (_WCH->conf.forecast) {
     if (meteo_get_15_minutely(&_WCH->weather, (float)_WCH->conf.latitude,

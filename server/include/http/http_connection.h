@@ -11,7 +11,7 @@
 #include <maestromodules/http_parser.h>
 
 #define TCP_MESSAGE_BUFFER_MAX_SIZE                                                                \
-  128 // Size of initial tcp_read buffer without reallocating more mem
+  1024 // Size of initial tcp_read buffer without reallocating more mem
 #define HTTP_SERVER_CONNECTION_FIRSTLINE_MAXLEN 1024 // Maximum length of http request's first line
 #define HTTP_SERVER_CONNECTION_HEADERS_MAXLEN 1024   // Maximum length of http request's first line
 #define HTTP_SERVER_CONNECTION_MAX_RETRIES                                                         \

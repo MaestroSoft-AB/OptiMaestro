@@ -362,17 +362,10 @@ int sql_helper_read_weather(SqlHelper* _H, Weather* _out, double _latitude, doub
   sqlite3_bind_int(stmt, 5, _forecast ? 1 : 0);
 
   if (sqlite3_step(stmt) != SQLITE_ROW) {
-    if (sqlite3_step(stmt) != SQLITE_ROW) {
-      LOG_WARN("read_weather: no matching facility row\n");
-      sqlite3_finalize(stmt);
-      _out->count = 0;
-      pthread_mutex_unlock(&_H->mutex);
-      return SUCCESS;
-    }
+    LOG_WARN("read_weather: no matching facility row\n");
     sqlite3_finalize(stmt);
     _out->count = 0;
     pthread_mutex_unlock(&_H->mutex);
-
     return SUCCESS;
   }
 
