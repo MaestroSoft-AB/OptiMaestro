@@ -343,11 +343,14 @@ int sql_helper_read_weather(SqlHelper* _H, Weather* _out, double _latitude, doub
   sqlite3_int64 facility_id = 0;
 
   const char* meta_sql = "SELECT id, interval_minutes, temperature_unit, windspeed_unit, "
-                         "precipitation_unit, winddirection_unit, radiation_unit "
+                         "precipitation_unit, winddirection_unit, radiation_unit, "
+                         "panel_tilt, panel_azimuth "
                          "FROM facility "
                          "WHERE ABS(latitude - ?) < 0.0001 "
                          "AND ABS(longitude - ?) < 0.0001 "
-                         "AND panel_tilt=? AND panel_azimuth=? AND forecast=?;";
+                         "AND forecast=? "
+                         "ORDER BY CASE WHEN panel_tilt=? AND panel_azimuth=? THEN 0 ELSE 1 END "
+                         "LIMIT 1;";
 
   pthread_mutex_lock(&_H->mutex);
   if (sqlite3_prepare_v2(_H->db, meta_sql, -1, &stmt, NULL) != SQLITE_OK) {
@@ -357,9 +360,9 @@ int sql_helper_read_weather(SqlHelper* _H, Weather* _out, double _latitude, doub
 
   sqlite3_bind_double(stmt, 1, _latitude);
   sqlite3_bind_double(stmt, 2, _longitude);
-  sqlite3_bind_int(stmt, 3, _panel_tilt);
-  sqlite3_bind_int(stmt, 4, _panel_azimuth);
-  sqlite3_bind_int(stmt, 5, _forecast ? 1 : 0);
+  sqlite3_bind_int(stmt, 3, _forecast ? 1 : 0);
+  sqlite3_bind_int(stmt, 4, _panel_tilt);
+  sqlite3_bind_int(stmt, 5, _panel_azimuth);
 
   if (sqlite3_step(stmt) != SQLITE_ROW) {
     LOG_WARN("read_weather: no matching facility row\n");
@@ -373,8 +376,8 @@ int sql_helper_read_weather(SqlHelper* _H, Weather* _out, double _latitude, doub
   _out->update_interval = sqlite3_column_int(stmt, 1);
   _out->latitude        = _latitude;
   _out->longitude       = _longitude;
-  _out->panel_tilt      = _panel_tilt;
-  _out->panel_azimuth   = _panel_azimuth;
+  _out->panel_tilt      = sqlite3_column_int(stmt, 7);
+  _out->panel_azimuth   = sqlite3_column_int(stmt, 8);
 
   if (_out->temperature_unit)
     free((void*)_out->temperature_unit);

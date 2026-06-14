@@ -112,9 +112,6 @@ HTTPServerConnectionState worktask_request_read_firstline(HTTP_Server_Connection
 
   uint8_t tcp_buf[TCP_MESSAGE_BUFFER_MAX_SIZE];
   int bytes_read = tcp_client_read_simple(TCP_C, tcp_buf, TCP_MESSAGE_BUFFER_MAX_SIZE);
-  printf("Bytes read: %d\n", bytes_read);
-  printf("BUF IN CONNECT: \n\n%s\n", (char*)tcp_buf);
-
   if (bytes_read > 0) {
     ssize_t bytes_stored = tcp_client_realloc_data(&TCP_C->data, tcp_buf, (size_t)bytes_read);
     if (bytes_stored < 0) {
@@ -133,7 +130,6 @@ HTTPServerConnectionState worktask_request_read_firstline(HTTP_Server_Connection
     /*No \r\n found yet*/
     if (TCP_C->data.size >= HTTP_SERVER_CONNECTION_FIRSTLINE_MAXLEN) {
       /*Invalid request*/
-      printf("Request too large..\n");
       _Connection->response->status_code = 400;
       return HTTP_SERVER_CONNECTION_RESPONDING;
     }
@@ -145,7 +141,6 @@ HTTPServerConnectionState worktask_request_read_firstline(HTTP_Server_Connection
   size_t line_len = (size_t)line_end;
 
   if (line_len == 0 || line_len >= HTTP_SERVER_CONNECTION_FIRSTLINE_MAXLEN) {
-    printf("Request too large..\n");
     _Connection->response->status_code = 400;
     return HTTP_SERVER_CONNECTION_RESPONDING;
   }
@@ -165,10 +160,6 @@ HTTPServerConnectionState worktask_request_read_firstline(HTTP_Server_Connection
     /*Add internal error*/
     return HTTP_SERVER_CONNECTION_ERROR;
   }
-
-  printf("Method: %d\n", _Connection->request->method);
-  printf("Method_str: %s\n", _Connection->request->method_str);
-  printf("Version: %s\n", _Connection->request->version);
 
   /*We have handled first line + 2 for \r\n*/
   size_t parsed = line_len + 2;
@@ -242,8 +233,6 @@ HTTPServerConnectionState worktask_request_read_headers(HTTP_Server_Connection* 
 
   int headers_end = http_parser_find_headers_end(TCP_C->data.addr, TCP_C->data.size);
 
-  printf("headers_end: %i\n", headers_end);
-
   if (headers_end < 0) {
     /*Continue reading on next work call*/
     return HTTP_SERVER_CONNECTION_READING_HEADERS;
@@ -274,7 +263,6 @@ HTTPServerConnectionState worktask_request_read_headers(HTTP_Server_Connection* 
   int result = http_parser_get_header_value(_Connection->request->headers, "Content-Length",
                                             &content_length_string);
   if (result < 0) {
-    printf("Content-Length header not found\n");
     return HTTP_SERVER_CONNECTION_VALIDATING;
   }
 
@@ -312,7 +300,6 @@ HTTPServerConnectionState worktask_request_read_body(HTTP_Server_Connection* _Co
     /*Keep reading body on next work call*/
     return HTTP_SERVER_CONNECTION_READING_BODY;
   }
-  printf("EXPECTED: %d, HAVE: %zu\n", _Connection->content_length, TCP_C->data.size);
   _Connection->retries = 0;
   return HTTP_SERVER_CONNECTION_VALIDATING;
 }
@@ -350,8 +337,6 @@ HTTPServerConnectionState worktask_respond(HTTP_Server_Connection* _Connection)
       _Connection->response->status_code != 400) // means we already built full response as part of
                                                  // a valid request
   {
-    printf("Full response: \n%s\n", _Connection->response->full_response);
-
     size_t full_response_len = strlen(_Connection->response->full_response);
 
     TCP_C->writeData = malloc(full_response_len + 1);
@@ -363,10 +348,8 @@ HTTPServerConnectionState worktask_respond(HTTP_Server_Connection* _Connection)
 
     memcpy(TCP_C->writeData, _Connection->response->full_response, full_response_len);
     TCP_C->writeData[full_response_len] = '\0';
-    printf("Writedata: \n%s\n", TCP_C->writeData);
 
-    int result = tcp_client_write(TCP_C, full_response_len);
-    printf("tcp result: %i\n", result);
+    tcp_client_write(TCP_C, full_response_len);
   } else if (_Connection->request->path && strcmp(_Connection->request->path, "/echo") == 0) // echo
   {
     HTTP_Request* req = _Connection->request;
@@ -468,7 +451,6 @@ HTTPServerConnectionState worktask_respond(HTTP_Server_Connection* _Connection)
     memcpy(TCP_C->writeData, http_response, written);
     ((char*)TCP_C->writeData)[written] = '\0';
 
-    printf("Writedata:\n%s\n", (char*)TCP_C->writeData);
     tcp_client_write(TCP_C, written);
   } else // error/invalid request
   {
@@ -497,7 +479,6 @@ HTTPServerConnectionState worktask_respond(HTTP_Server_Connection* _Connection)
 
     memcpy(TCP_C->writeData, err_response_buf, written);
     TCP_C->writeData[written] = '\0';
-    printf("Writedata: \n%s\n", TCP_C->writeData);
     tcp_client_write(TCP_C, written);
   }
 
@@ -521,22 +502,18 @@ void http_server_connection_taskwork(void* _Context, uint64_t _montime)
   } break;
 
   case HTTP_SERVER_CONNECTION_READING_FIRSTLINE: {
-    printf("HTTP_SERVER_CONNECTION_READING_FIRSTLINE\n");
     _Connection->state = worktask_request_read_firstline(_Connection);
   } break;
 
   case HTTP_SERVER_CONNECTION_READING_HEADERS: {
-    printf("HTTP_SERVER_CONNECTION_READING_HEADERS\n");
     _Connection->state = worktask_request_read_headers(_Connection);
   } break;
 
   case HTTP_SERVER_CONNECTION_READING_BODY: {
-    printf("HTTP_SERVER_CONNECTION_READING_BODY\n");
     _Connection->state = worktask_request_read_body(_Connection);
   } break;
 
   case HTTP_SERVER_CONNECTION_VALIDATING: {
-    printf("HTTP_SERVER_CONNECTION_VALIDATING\n");
     _Connection->state = worktask_request_validate(_Connection);
   } break;
 
@@ -546,19 +523,16 @@ void http_server_connection_taskwork(void* _Context, uint64_t _montime)
   } break;
 
   case HTTP_SERVER_CONNECTION_RESPONDING: {
-    printf("HTTP_SERVER_CONNECTION_RESPONDING\n");
     _Connection->state = worktask_respond(_Connection);
   } break;
 
   case HTTP_SERVER_CONNECTION_DISPOSING: {
-    printf("HTTP_SERVER_CONNECTION_DISPOSING\n");
     tcp_client_disconnect(&_Connection->tcp_client);
     _Connection->on_dispose(_Connection->context);
 
   } break;
 
   case HTTP_SERVER_CONNECTION_ERROR: {
-    printf("HTTP_SERVER_CONNECTION_ERROR\n");
     _Connection->response->status_code = 500;
     _Connection->state = HTTP_SERVER_CONNECTION_RESPONDING;
 

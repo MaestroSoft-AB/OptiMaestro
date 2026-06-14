@@ -62,6 +62,12 @@ static inline Facility_Config* facility_parse_config(const char* _filepath)
   char* conf_panel_azimuth = values[6];
   char* conf_panel_size    = values[7];
 
+  if (conf_name[0] == '\0') {
+    config_values_dispose(values, KEYS_COUNT);
+    free(Conf);
+    return NULL;
+  }
+
   /* Get name */
   size_t name_len = strlen(conf_name);
   Conf->name = malloc(name_len + 1);
@@ -110,7 +116,6 @@ static inline Facility_Config* facility_parse_config(const char* _filepath)
     Conf->panel = NULL;
 
   config_values_dispose(values, KEYS_COUNT);
-  LOG_INFO("Config for facility %s parsed from: %s", Conf->name, _filepath);
   // LOG_INFO("latitude: %f, longitude %f\n", Conf->lon, Conf->lat);
   // LOG_INFO("azimuth %i, tilt: %i\n", Conf->panel_azimuth, Conf->panel_tilt);
   return Conf;
@@ -173,23 +178,21 @@ Facility_Config** facility_get_configs(const char* _facility_dir, size_t* _facil
     /* Parse config */
     Facility_Config* Conf = facility_parse_config(filepath);
     if (!Conf) {
-      LOG_ERROR("facility_parse_config");
-      facility_dispose(Conf_Array, *_facility_count);
-
-      /* Dispose of the rest of conf name strings */
-      for (int y = i; y < (int)conf_files_count; y++)
-        free(conf_files[y]);
-      free(conf_files);
-
-      return NULL;
+      free(conf_files[i]);
+      continue;
     }
 
     (*_facility_count)++;
 
-    Conf_Array[i] = Conf;
+    Conf_Array[*_facility_count - 1] = Conf;
     free(conf_files[i]); // free conf name string
   }
   free(conf_files);
+
+  if (_facility_count && *_facility_count == 0) {
+    free(Conf_Array);
+    return NULL;
+  }
 
   return Conf_Array; 
 }

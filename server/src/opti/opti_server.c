@@ -226,8 +226,6 @@ int opti_s_on_instance_finish(void* _context, void* _instance) {
   if (Instance->item != NULL)
     linked_list_item_remove(Server->instances, Instance->item);
 
-  linked_list_foreach(Server->instances, node) printf("Instance: %p\n", node);
-
   osi_dispose_ptr(&Instance);
 
   return SUCCESS;
@@ -255,7 +253,6 @@ void opti_s_taskwork(void* _context, uint64_t _MonTime) {
 
   switch (server->state) {
   case OPTI_SERVER_INIT:
-    printf("OPTI_SERVER_INIT\n");
     next_state = OPTI_SERVER_IDLE;
     break;
 
@@ -269,19 +266,16 @@ void opti_s_taskwork(void* _context, uint64_t _MonTime) {
   }
 
   case OPTI_SERVER_CONNECTED:
-    printf("OPTI_SERVER_CONNECTED\n");
     next_state = OPTI_SERVER_IDLE;
     break;
 
   case OPTI_SERVER_ERROR:
-    printf("OPTI_SERVER_ERROR\n");
     next_state = OPTI_SERVER_DISPOSING;
     break;
 
   case OPTI_SERVER_DISPOSING:
     opti_s_dispose(server);
     /*CALL DISPOSE STUFF HERE*/
-    printf("OPTI_SERVER_DISPOSE\n");
     break;
   }
 

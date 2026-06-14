@@ -577,7 +577,6 @@ static inline int calc_fetch_input_data(Electricity_Spots* _S,
       _S->prices = NULL;
       return res;
     }
-    printf("Number of spots: %d\n", _S->price_count);
   }
 
   return SUCCESS;

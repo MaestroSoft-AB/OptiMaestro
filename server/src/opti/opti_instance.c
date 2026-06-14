@@ -1356,7 +1356,6 @@ static int osi_append_text(char** buffer, size_t* used, size_t* capacity, const 
 
 static int osi_parse_config_updates(const char* body, int body_len, char* filename) {
   if (!body || body_len <= 0) {
-    printf("!body || body_len <= 0\n");
     return ERR_INVALID_ARG;
   }
 
@@ -1393,13 +1392,10 @@ static int osi_parse_config_updates(const char* body, int body_len, char* filena
 
     Config_Update* update = osi_find_config_update(line, key_len);
     if (!update) {
-      printf("line: %s\n", line);
-      printf("!update\n");
       return ERR_INVALID_ARG;
     }
 
     if (value_len >= sizeof(update->value)) {
-      printf("value_len >= sizeof(update->value)\n");
       return ERR_INVALID_ARG;
     }
 
@@ -1958,12 +1954,9 @@ int osi_get_average_daily(Osi_RequestCtx* _ctx) {
   char* filename =
       calc_name_get_daily(CALCS_DEFAULT_DIRECTORY, facility_name, type, epd, time(NULL));
   if (!filename) {
-    printf("Failed to format filename\n");
     return osi_set_response(_ctx->conn, 500, "application/json",
                             "{\"error\":\"Failed to format filename\"}");
   }
-
-  printf("Fetching data from: %s\n", filename);
 
   const char* file_content = read_file_to_string(filename);
   if (!file_content) {
@@ -2001,12 +1994,9 @@ int osi_get_average_hourly(Osi_RequestCtx* _ctx) {
                      today);
 
   if (res < 0 || (size_t)res >= sizeof(full_filename)) {
-    printf("Failed to format filename\n");
     return osi_set_response(_ctx->conn, 503, "application/json",
                             "{\"error\":\"average.json not available\"}");
   }
-
-  printf("Fetching data from: %s\n", full_filename);
 
   const char* file_content = read_file_to_string((const char*)full_filename);
   if (!file_content) {
@@ -2086,7 +2076,6 @@ int osi_post_config(Osi_RequestCtx* _ctx) {
   int         body_len = 0;
   const char* body     = osi_get_request_body(_ctx, &body_len);
   if (!body || body_len <= 0) {
-    printf("BAD REQUEST !body || body_len <= 0");
     return osi_set_response(_ctx->conn, 400, "application/json",
                             "{\"error\":\"config body missing\"}");
   }
@@ -2094,7 +2083,6 @@ int osi_post_config(Osi_RequestCtx* _ctx) {
   char* file         = NULL;
   int   parse_result = osi_parse_config_updates(body, body_len, file);
   if (parse_result == ERR_INVALID_ARG) {
-    printf("parse_result == ERR_INVALID_ARG");
     return osi_set_response(_ctx->conn, 400, "application/json",
                             "{\"error\":\"invalid config key in update\"}");
   }
@@ -2293,7 +2281,6 @@ int osi_on_api_finish(void* _context) {
   }
 
   Opti_Server_Instance* Instance = (Opti_Server_Instance*)_context;
-  printf("opti instance api on finish\n");
   Instance->state = OPTI_INSTANCE_RESPONSE_BUILDING;
 
   return SUCCESS;
@@ -2362,12 +2349,10 @@ void osi_taskwork(void* _context, uint64_t _montime) {
 
   switch (Instance->state) {
   case OPTI_INSTANCE_INITIALIZING: {
-    printf("OPTI_INSTANCE_INITIALIZING\n");
     Instance->state = OPTI_INSTANCE_REQUEST_PARSING;
   } break;
 
   case OPTI_INSTANCE_REQUEST_PARSING: {
-    printf("OPTI_INSTANCE_REQUEST_PARSING\n");
     Instance->state = worktask_request_parse(Instance);
   } break;
 
@@ -2375,17 +2360,14 @@ void osi_taskwork(void* _context, uint64_t _montime) {
     break;
 
   case OPTI_INSTANCE_RESPONSE_BUILDING: {
-    printf("OPTI_INSTANCE_RESPONSE_BUILDING\n");
     Instance->state = worktask_response_build(Instance);
   } break;
 
   case OPTI_INSTANCE_RESPONSE_SENDING: {
-    printf("OPTI_INSTANCE_RESPONSE_SENDING\n");
     Instance->state = OPTI_INSTANCE_DISPOSING;
   } break;
 
   case OPTI_INSTANCE_DISPOSING: {
-    printf("OPTI_INSTANCE_DISPOSING\n");
     // on_dipose function will dispose
   } break;
 

@@ -149,7 +149,6 @@ int http_server_on_accept(int _fd, void* _Context)
     return ERR_INVALID_ARG;
   }
 
-  printf("on accept fd: %i\n", _fd);
   HTTP_Server* Server = (HTTP_Server*)_Context;
   Server->client_fd = _fd;
   Server->state = HTTP_SERVER_CONNECTING;
@@ -177,12 +176,10 @@ void http_server_taskwork(void* _context, uint64_t _montime)
   }
 
   case HTTP_SERVER_CONNECTING: {
-    printf("HTTP_SERVER_CONNECTING\n");
     next_state = http_server_connection_handover(server->client_fd, server);
     break;
   }
   case HTTP_SERVER_CONNECTED: {
-    printf("HTTP_SERVER_CONNECTED\n");
     next_state = HTTP_SERVER_IDLING;
     break;
   }
@@ -192,7 +189,6 @@ void http_server_taskwork(void* _context, uint64_t _montime)
     break;
 
   case HTTP_SERVER_DISPOSING: {
-    printf("HTTP_SERVER_DISPOSING\n");
     http_server_dispose(server);
     return;
   }

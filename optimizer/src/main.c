@@ -190,7 +190,6 @@ int main(int _argc, const char** _argv) {
       optimizer_run(&Opti);
       sig_new_data = 0;
     } else if (sig_update_config) {
-      printf("%s - Update config...\n", _argv[0]);
       optimizer_config_set(&Opti.config);
       sig_update_config = 0;
     } else if (now >= next_run) {

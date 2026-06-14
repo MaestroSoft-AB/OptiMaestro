@@ -51,8 +51,6 @@ int wch_init(WCH* _WCH, const WCH_Conf* _Conf)
 
 int wch_update_cache(WCH* _WCH)
 {
-  LOG_INFO("Updating weather cache...\r\n");
-
   _WCH->weather.latitude = _WCH->conf.latitude;
   _WCH->weather.longitude = _WCH->conf.longitude;
   _WCH->weather.panel_tilt = _WCH->conf.panel_tilt;

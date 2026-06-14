@@ -45,9 +45,6 @@ int meteo_get_15_minutely(Weather* _Weather, float _lat, float _lon, float _pane
   /* Define URL */
   char url_buf[METEO_MAX_URL_LEN];
 
-  printf("lat : %f lon: %f, azimuth: %f, tilt: %f\n", _lat, _lon, (float)_Weather->panel_azimuth,
-         (float)_Weather->panel_tilt);
-
   char start_date[11];
   char end_date[11];
 
