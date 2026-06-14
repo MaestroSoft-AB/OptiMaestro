@@ -1687,6 +1687,27 @@ int osi_get_weather_cache(Osi_RequestCtx* _ctx) {
   Weather weather = {0};
   int read_result = sql_helper_read_weather(&server->optimizer_cache, &weather, latitude, longitude,
                                             panel_tilt, panel_azimuth, forecast, start, end);
+
+  if (read_result == SUCCESS && forecast && weather.count == 0) {
+    osi_weather_dispose(&weather);
+
+    time_t fallback_start = time(NULL) - 86400;
+    time_t fallback_end   = time(NULL) + (7 * 86400);
+    read_result = sql_helper_read_weather(&server->optimizer_cache, &weather, latitude, longitude,
+                                          panel_tilt, panel_azimuth, true, fallback_start,
+                                          fallback_end);
+  }
+
+  if (read_result == SUCCESS && forecast && weather.count == 0) {
+    osi_weather_dispose(&weather);
+
+    time_t current_start = time(NULL) - 86400;
+    time_t current_end   = time(NULL) + 3600;
+    read_result = sql_helper_read_weather(&server->optimizer_cache, &weather, latitude, longitude,
+                                          panel_tilt, panel_azimuth, false, current_start,
+                                          current_end);
+  }
+
   if (configs) {
     facility_dispose(configs, facility_count);
   }
