@@ -38,6 +38,7 @@ static int         osi_parse_time_range(HTTP_Request* req, time_t* start_out, ti
 static int         osi_get_default_facility_name(char* name_out, size_t name_out_size);
 static int         osi_load_request_facility(HTTP_Request* req, Facility_Config*** configs_out,
                                              size_t* count_out, Facility_Config** facility_out);
+static void        osi_default_forecast_range(HTTP_Request* req, time_t* start, time_t* end);
 static const char* osi_get_query_param_any(HTTP_Request* req, const char* const* keys);
 static int         osi_parse_query_double(HTTP_Request* req, const char* const* keys, double* out);
 static int         osi_parse_query_int(HTTP_Request* req, const char* const* keys, int* out);
@@ -339,6 +340,28 @@ static int osi_parse_time_range(HTTP_Request* req, time_t* start_out, time_t* en
   *start_out = start;
   *end_out   = end;
   return SUCCESS;
+}
+
+static void osi_default_forecast_range(HTTP_Request* req, time_t* start, time_t* end) {
+  if (!req || !start || !end || osi_get_query_param(req, "from") || osi_get_query_param(req, "to")) {
+    return;
+  }
+
+  time_t now = time(NULL);
+  const char* range = osi_get_query_param(req, "range");
+  if (range && strcmp(range, "7d") == 0) {
+    *start = now;
+    *end = now + (7 * 86400);
+  } else if (range && strcmp(range, "30d") == 0) {
+    *start = now;
+    *end = now + (30 * 86400);
+  } else if (range && strcmp(range, "24h") == 0) {
+    *start = now;
+    *end = now + 86400;
+  } else {
+    *start = now;
+    *end = now + 86400;
+  }
 }
 
 static int osi_load_request_facility(HTTP_Request* req, Facility_Config*** configs_out,
@@ -1656,7 +1679,10 @@ int osi_get_weather_cache(Osi_RequestCtx* _ctx) {
   }
 
   const char* forecast_param = osi_get_query_param(req, "forecast");
-  bool        forecast       = !forecast_param || strcmp(forecast_param, "0") != 0;
+  bool        forecast       = forecast_param && strcmp(forecast_param, "0") != 0;
+  if (forecast) {
+    osi_default_forecast_range(req, &start, &end);
+  }
 
   Weather weather = {0};
   int read_result = sql_helper_read_weather(&server->optimizer_cache, &weather, latitude, longitude,
