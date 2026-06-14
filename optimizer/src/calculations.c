@@ -117,10 +117,11 @@ void calc_daily_averages_threadtask(void* _context) {
     return;
   }
 
-  if (W_Ptr != NULL && (S_Ptr->price_count > W_Ptr->count)) {
-    LOG_ERROR("Something went wrong fetching input data");
-
-    return;
+  if (W_Ptr != NULL &&
+      (W_Ptr->count != S_Ptr->price_count || W_Ptr->count == 0 || W_Ptr->values == NULL ||
+       W_Ptr->values[0].timestamp != S_Ptr->prices[0].time_start)) {
+    wch_weather_dispose(&W);
+    W_Ptr = NULL;
   }
 
   int epd = 0; // entries-per-day
@@ -154,7 +155,6 @@ void calc_daily_averages_threadtask(void* _context) {
     calc_results_dispose(&Results);
     return;
   }
-  LOG_INFO("%s created!", filename_json);
   free(filename_json);
 
   char* filename_txt = calc_name_get_daily(C_Args->calcs_dir, F_Ptr->name, "txt", epd, time(NULL));
@@ -168,7 +168,6 @@ void calc_daily_averages_threadtask(void* _context) {
     calc_results_dispose(&Results);
     return;
   }
-  LOG_INFO("%s created!", filename_txt);
   free(filename_txt);
 
   calc_results_dispose(&Results);

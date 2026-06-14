@@ -35,19 +35,19 @@ static volatile sig_atomic_t sig_update_config = 0;
 
 /* Sighandlers to activate flag */
 void sig_handle_ignore(int _sig) {
-  LOG_INFO("Sig called: %i", _sig);
+  (void)_sig;
   sig_ignore = 1;
 }
 void sig_handle_exit(int _sig) {
-  LOG_INFO("Sig called: %i", _sig);
+  (void)_sig;
   sig_exit = 1;
 }
 void sig_handle_new_data(int _sig) {
-  LOG_INFO("Sig called: %i", _sig);
+  (void)_sig;
   sig_new_data = 1;
 }
 void sig_handle_update_config(int _sig) {
-  LOG_INFO("Sig called: %i", _sig);
+  (void)_sig;
   sig_update_config = 1;
 }
 
@@ -103,10 +103,8 @@ static int uds_server_step(int server_fd, Optimizer* _Opti) {
 
 
   if (strcmp(buf, RUN) == 0) {
-    LOG_INFO("%s - Triggered by socket: RUN", "_Optimizer");
     optimizer_run(_Opti);
   } else if (strcmp(buf, RELOAD) == 0) {
-    LOG_INFO("%s - Triggered by socket: RELOAD", "_Optimizer");
     optimizer_config_set(&_Opti->config);
   } else if (strcmp(buf, KILL) == 0) {
     LOG_INFO("%s - Triggered by socket: KILL", "_Optimizer");
@@ -186,14 +184,12 @@ int main(int _argc, const char** _argv) {
       // (should be done in handler though so exact sig can be logged)
       sig_ignore = 0;
     } else if (sig_new_data) {
-      LOG_INFO("%s - Get new cache and calculations...\n", _argv[0]);
       optimizer_run(&Opti);
       sig_new_data = 0;
     } else if (sig_update_config) {
       optimizer_config_set(&Opti.config);
       sig_update_config = 0;
     } else if (now >= next_run) {
-      LOG_INFO("%s - Get new cache and calculations...\n", _argv[0]);
       optimizer_run(&Opti);
       sig_new_data = 0;
       next_run += 900;

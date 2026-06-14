@@ -1630,6 +1630,10 @@ int osi_get_weather_cache(Osi_RequestCtx* _ctx) {
   float             longitude      = 0.0f;
   int               panel_tilt     = 0;
   unsigned int      panel_azimuth  = 0;
+  const char* latitude_keys[]  = {"latitude", "lat", NULL};
+  const char* longitude_keys[] = {"longitude", "lon", NULL};
+  const char* tilt_keys[]      = {"panel_tilt", "panel.tilt", NULL};
+  const char* azimuth_keys[]   = {"panel_azimuth", "panel.azimuth", NULL};
   int facility_result = osi_load_request_facility(req, &configs, &facility_count, &facility);
   if (facility_result == SUCCESS && facility) {
     latitude      = facility->lat;
@@ -1637,10 +1641,6 @@ int osi_get_weather_cache(Osi_RequestCtx* _ctx) {
     panel_tilt    = facility->panel ? facility->panel->tilt : 0;
     panel_azimuth = facility->panel ? (unsigned int)facility->panel->azimuth : 0;
   } else {
-    const char* latitude_keys[]  = {"latitude", "lat", NULL};
-    const char* longitude_keys[] = {"longitude", "lon", NULL};
-    const char* tilt_keys[]      = {"panel_tilt", "panel.tilt", NULL};
-    const char* azimuth_keys[]   = {"panel_azimuth", "panel.azimuth", NULL};
     const char* latitude_param   = osi_get_query_param_any(req, latitude_keys);
     const char* longitude_param  = osi_get_query_param_any(req, longitude_keys);
     double      latitude_value   = 0.0;
@@ -1671,6 +1671,27 @@ int osi_get_weather_cache(Osi_RequestCtx* _ctx) {
     latitude      = (float)latitude_value;
     longitude     = (float)longitude_value;
     panel_tilt    = parsed_tilt;
+    panel_azimuth = (unsigned int)(parsed_azimuth < 0 ? 0 : parsed_azimuth);
+  }
+
+  double latitude_value  = 0.0;
+  double longitude_value = 0.0;
+  int    parsed_tilt     = 0;
+  int    parsed_azimuth  = 0;
+  if (osi_get_query_param_any(req, latitude_keys) != NULL &&
+      osi_parse_query_double(req, latitude_keys, &latitude_value)) {
+    latitude = (float)latitude_value;
+  }
+  if (osi_get_query_param_any(req, longitude_keys) != NULL &&
+      osi_parse_query_double(req, longitude_keys, &longitude_value)) {
+    longitude = (float)longitude_value;
+  }
+  if (osi_get_query_param_any(req, tilt_keys) != NULL &&
+      osi_parse_query_int(req, tilt_keys, &parsed_tilt)) {
+    panel_tilt = parsed_tilt;
+  }
+  if (osi_get_query_param_any(req, azimuth_keys) != NULL &&
+      osi_parse_query_int(req, azimuth_keys, &parsed_azimuth)) {
     panel_azimuth = (unsigned int)(parsed_azimuth < 0 ? 0 : parsed_azimuth);
   }
 

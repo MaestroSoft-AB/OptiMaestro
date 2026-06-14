@@ -75,8 +75,6 @@ int ech_update_cache(ECH* _ECH)
   if (!_ECH) {
     return ERR_INVALID_ARG;
   }
-  LOG_INFO("Updating electricity cache (SE%d)...\r\n", _ECH->conf.price_class + 1);
-
   int res;
   _ECH->spot.price_class = _ECH->conf.price_class;
   _ECH->spot.currency = _ECH->conf.currency;
@@ -110,7 +108,6 @@ int ech_update_cache(ECH* _ECH)
   }
 
   if (_ECH->spot.price_count > 0) {
-    LOG_INFO("Electricity cache up to date, loaded %d rows from db.", _ECH->spot.price_count);
     return SUCCESS;
   }
 

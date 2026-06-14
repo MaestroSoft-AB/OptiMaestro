@@ -1009,7 +1009,8 @@ static int write_txt_report(const Consumption_Profile* _P, const Electricity_Spo
 }
 
 static void log_report_written(const char* _filename, int _existed) {
-  LOG_INFO("Consumption calculation %s %s", _filename, _existed ? "updated" : "created");
+  (void)_filename;
+  (void)_existed;
 }
 
 static int bucket_for_time(time_t _ts) {
