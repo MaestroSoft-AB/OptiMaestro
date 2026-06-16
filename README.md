@@ -11,7 +11,6 @@ The project consists of two modules:
 ## Prerequisites
 
 - GCC (or Clang on macOS), GNU Make
-- `libcurl` (required by server)
 - Linux (tested environment; macOS partially supported via Clang)
 - Git submodules initialized
 
